@@ -22,7 +22,7 @@ def main():
     
     try:
         uvicorn.run(
-            "gpt_deploy:app",
+            "main:app",
             host=host,
             port=port,
             log_level="info",
