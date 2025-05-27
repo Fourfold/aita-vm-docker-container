@@ -8,7 +8,7 @@ export PROJECT_ID=$(gcloud config get-value project)
 # docker build -t us-central1-docker.pkg.dev/$PROJECT_ID/aita-vm-image/pptx_translation_pipelines:v1 .
 # docker push us-central1-docker.pkg.dev/$PROJECT_ID/aita-vm-image/pptx_translation_pipelines:v1
 gcloud projects add-iam-policy-binding $PROJECT_ID \
-    --member="836454816267@cloudbuild.gserviceaccount.com" \
+    --member="serviceAccount:836454816267@cloudbuild.gserviceaccount.com" \
     --role="roles/artifactregistry.writer"
 gcloud builds submit --tag us-central1-docker.pkg.dev/$PROJECT_ID/aita-vm-image/pptx_translation_pipelines:v1
 echo "Docker image pushed to: us-central1-docker.pkg.dev/$PROJECT_ID/aita-vm-image/pptx_translation_pipelines:v1"
