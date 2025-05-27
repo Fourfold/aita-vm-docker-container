@@ -1,11 +1,4 @@
-openai
-fastapi
-uvicorn
-tiktoken
-
-# Install PyTorch with CUDA support first
 --index-url https://download.pytorch.org/whl/cu121
-torch
 xformers
 
 # Install PaddlePaddle with CUDA support

@@ -27,8 +27,10 @@ WORKDIR /app
 COPY ./gemmax2_9b_finetuned /app/gemmax2_9b_finetuned
 
 # Copy requirements and install dependencies
-COPY requirements.txt .
-RUN pip3 install --no-cache-dir -r requirements.txt
+COPY requirements1.txt .
+RUN pip3 install --no-cache-dir -r requirements1.txt
+COPY requirements2.txt .
+RUN pip3 install --no-cache-dir -r requirements2.txt
 
 # Copy the rest of the files
 COPY . .
