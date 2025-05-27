@@ -27,10 +27,11 @@ WORKDIR /app
 COPY ./gemmax2_9b_finetuned /app/gemmax2_9b_finetuned
 
 # Copy requirements and install dependencies
-COPY requirements1.txt .
-RUN pip3 install --no-cache-dir -r requirements1.txt
-COPY requirements2.txt .
-RUN pip3 install --no-cache-dir -r requirements2.txt
+COPY requirements.txt .
+RUN pip3 install --no-cache-dir -r requirements.txt
+RUN pip3 install --upgrade xformers --index-url https://download.pytorch.org/whl/cu121
+RUN pip3 install paddlepaddle-gpu==3.0.0rc0 -i https://www.paddlepaddle.org.cn/packages/stable/cu123/
+RUN pip3 install paddlex==3.0rc0 simsimd==1.1.2 --use-pep517
 
 # Copy the rest of the files
 COPY . .

@@ -3,3 +3,5 @@ fastapi
 uvicorn
 tiktoken
 torch
+pdf2image
+python-pptx
