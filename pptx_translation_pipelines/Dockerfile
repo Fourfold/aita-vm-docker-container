@@ -25,7 +25,7 @@ RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.9 1 
 WORKDIR /app
 
 # Copy LoRA adapters first (can be cached if they don't change often)
-COPY ./lora_adapters /app/lora_adapters
+COPY ./gemmax2_9b_finetuned /app/gemmax2_9b_finetuned
 
 # Copy requirements and install dependencies
 COPY requirements.txt .
