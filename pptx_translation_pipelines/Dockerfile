@@ -36,9 +36,7 @@ RUN pip3 install paddlepaddle-gpu==3.0.0rc0 -i https://www.paddlepaddle.org.cn/p
 RUN apt-get install -y swig build-essential python3.9-dev && \
     apt-get clean
 # Install faiss-cpu first with pre-built wheel, then other packages
-RUN pip3 install --no-cache-dir faiss-cpu
-RUN pip3 install paddlex==3.0rc0 simsimd==1.1.2 --use-pep517
-
+RUN pip3 install paddlex==3.0rc0 faiss-cpu==1.8.0 simsimd==1.1.2 --use-pep517
 
 # Copy the rest of the files
 COPY . .
