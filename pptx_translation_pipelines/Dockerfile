@@ -32,10 +32,8 @@ RUN pip3 install --no-cache-dir -r requirements.txt
 # RUN pip3 install --upgrade xformers --index-url https://download.pytorch.org/whl/cu121
 RUN pip3 install paddlepaddle-gpu==3.0.0rc0 -i https://www.paddlepaddle.org.cn/packages/stable/cu123/
 
-RUN apt-get install -y swig build-essential python3.9-dev && \
-    apt-get clean
 # RUN pip3 install paddlex==3.0rc0 simsimd==1.1.2 --use-pep517
-RUN pip3 install paddlex==3.0rc0 simsimd==1.1.2
+RUN pip3 install paddlex==3.0rc0
 
 
 # Copy the rest of the files
