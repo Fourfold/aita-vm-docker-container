@@ -1,0 +1,18 @@
+openai
+fastapi
+uvicorn
+tiktoken
+torch
+
+--index-url https://download.pytorch.org/whl/cu121
+xformers
+
+--index-url https://www.paddlepaddle.org.cn/packages/stable/cu123/
+paddlepaddle-gpu==3.0.0rc0
+
+# Reset to PyPI for any packages that might be added below this line
+--index-url https://pypi.org/simple
+paddlex==3.0rc0
+simsimd==1.1.2
+pdf2image
+python-pptx
