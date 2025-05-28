@@ -1,16 +1,24 @@
 from fastapi import FastAPI, HTTPException, Response
 from contextlib import asynccontextmanager
 from pipeline_pro import PipelinePro
+from pipeline_public import PipelinePublic
+from paddle_classifier import LayoutClassifier
+from pipeline_utilities import init_firebase
 
 app = FastAPI()
 pipeline_pro = None
+pipeline_public = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup code
     print("App is starting up...")
+    init_firebase()
+    LayoutClassifier.initialize()
     global pipeline_pro
     pipeline_pro = PipelinePro()
+    global pipeline_public
+    pipeline_public = PipelinePublic()
     yield
     # Shutdown code
     print("App is shutting down...")

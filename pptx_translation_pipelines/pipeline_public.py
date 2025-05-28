@@ -29,9 +29,9 @@ import threading
 
 from pipeline_utilities import *
 from slide_flipping import process_pptx_flip
+from paddle_classifier import PaddleClassifier
 
 
-logger = Logger()
 parallelWorkers = 5
 model = "gpt-4o"
 
@@ -39,31 +39,6 @@ client = OpenAI(
     api_key='sk-proj-zo8UYHSjQsRDj27x0UgPT3BlbkFJRhKTphRtEu8ITjFjfRBS'
 )
 
-paddle_text_types = {
-    "doc_title": "Page Title",
-    "paragraph_title": "Paragraph Header",
-    "text": "Body",
-    "page_number": "Formals",
-    "abstract": "Body",
-    "table_of_contents": "Page Title",
-    "references": "Formals",
-    "footnotes": "Formals",
-    "header": "Formals",
-    "footer": "Formals",
-    "algorithm": "Unknown",
-    "formula": "Unknown",
-    "formula_number": "Formals",
-    # "image": "Shape",
-    "figure_caption": "Paragraph Header",
-    "table": "Table",
-    "table_caption": "Paragraph Header",
-    "seal": "Formals",
-    "figure_title": "Paragraph Header",
-    # "figure": "Shape",
-    "header_image": "Formals",
-    "footer_image": "Formals",
-    "sidebar_text": "Body"
-}
 
 class PipelinePublic:
     _instance = None
@@ -73,9 +48,7 @@ class PipelinePublic:
             cls._instance = super(PipelinePublic, cls).__new__(cls)
             cls._instance.model = model
             cls._instance.parallelWorkers = parallelWorkers
-            cls._instance.logger = Logger()
             cls._instance.token_limiter = PipelinePublic.TokenRateLimiter(tpm_limit=30000, model_name="gpt-4o")
-            cls._instance.paddle_model = create_model(model_name="PP-DocLayout-L")
         return cls._instance
 
     class TokenRateLimiter:
@@ -195,6 +168,7 @@ class PipelinePublic:
         response = json.loads(response)
         return response
 
+
     def infer(self, input_json: str, index: int = 0):
         generated_text = self.fetch_and_parse_output(PipelinePublic.get_prompt(input_json))
 
@@ -217,6 +191,7 @@ class PipelinePublic:
 
         return index, out_list_repr
 
+
     def reevaluate(a: str):
         b = re.sub(r"'", "¨", a)
         b = re.sub(r'\[{"id"', "[{'id'", b)
@@ -233,141 +208,20 @@ class PipelinePublic:
         except (ValueError, SyntaxError, TypeError) as e:
             return None
 
-    def convert_pdf_to_images_sm(self, pdf_path, output_folder='pdf2image_output'):
-        """Converts a PDF file to image files in the SageMaker environment."""
-        if not os.path.exists(output_folder):
-            os.makedirs(output_folder)
-        if not os.path.exists(pdf_path):
-            self.logger.error("PDF does not exist.")
-            return []
-
-        image_paths = []
-        self.logger.publish("Converting pdf to images...")
-        try:
-            # In SageMaker's Linux environment, poppler should be found if installed via apt-get
-            images = convert_from_path(pdf_path)
-            for i, img in enumerate(images):
-                img_path = os.path.join(output_folder, f'page_{i+1}.png')
-                img.save(img_path, 'PNG')
-                image_paths.append(img_path)
-            self.logger.publish(f"Converted {len(image_paths)} pages to images.")
-            return image_paths
-        except Exception as e:
-            self.logger.error(f"Error converting PDF: {e}")
-            return []
-
-
-    def analyze_document_layout(self, pdf_path, number_of_slides, output_save_dir='paddle_output'):
-        """
-        Converts PDF to images and runs layout analysis using the PPStructure engine.
-        Focuses on extracting layout information (type, bbox).
-        """
-        image_files = self.convert_pdf_to_images_sm(pdf_path)
-        if not image_files:
-            self.logger.publish("PDF processing failed.")
-            return None
-
-        if not os.path.exists(output_save_dir):
-            os.makedirs(output_save_dir)
-
-        all_page_layout_results = []
-
-        for i, img_path in enumerate(image_files):
-            self.logger.publish(f"Processing page #{i+1} of {number_of_slides}")
-            output = self.paddle_model.predict(img_path, batch_size=1, layout_nms=True)
-            page_layout_info = []
-            size = None
-            for res in output:
-                if size is None:
-                    size = res['input_img'].shape
-                page_layout_info.append(res['boxes'])
-                # # Print result and save images
-                # res.print()
-                # res.save_to_img(save_path=output_save_dir)
-                # res.save_to_json(save_path=f"{output_save_dir}/res_{img_name}.json")
-
-            all_page_layout_results.append({
-                'image_path': img_path,
-                'image_size': size[0:2],
-                'layout_results': page_layout_info
-            })
-            os.remove(img_path)
-
-        self.logger.publish("Document layout analysis complete.")
-        return all_page_layout_results
-
-
-    def apply_layout_types(self, extracted_shapes, layout):
-        number_of_slides = len(extracted_shapes)
-        source = []
-        for i in range(number_of_slides):
-            self.logger.publish(f"Processing slide #{i + 1} of {number_of_slides}")
-            slide_source = []
-            slide = extracted_shapes[i]
-            for nshape in slide:  # [x1,x2,y1,y2]
-                size = layout[i]['image_size']  # (height,width) in pixels
-                shape = [size[1]*nshape[0], size[1]*nshape[1], size[0]*nshape[2], size[0]*nshape[3]]
-                slide_layout = layout[i]['layout_results'][0]
-                center = ((shape[0]+shape[1])/2, (shape[2]+shape[3])/2)  # (x,y)
-                text_type = "Unknown"
-                for j in range(len(slide_layout)):
-                    coordinates = slide_layout[j]['coordinate']  # [x1,y1,x2,y2]
-                    if center[0] >= coordinates[0] \
-                        and center[0] <= coordinates[2] \
-                        and center[1] >= coordinates[1] \
-                            and center[1] <= coordinates[3]:
-                        # Center is inside layout
-                        text_type = slide_layout[j]['label']
-                        text_type = paddle_text_types.get(text_type)
-                        if text_type is None:
-                            text_type = "Unknown"
-                        break
-                if text_type == "Unknown":
-                    # Try seeing if there is any overlap
-                    def rectangles_overlap(xa1, xa2, ya1, ya2, xb1, xb2, yb1, yb2):
-                        # Make sure the coordinates are ordered correctly
-                        xa1, xa2 = min(xa1, xa2), max(xa1, xa2)
-                        ya1, ya2 = min(ya1, ya2), max(ya1, ya2)
-                        xb1, xb2 = min(xb1, xb2), max(xb1, xb2)
-                        yb1, yb2 = min(yb1, yb2), max(yb1, yb2)
-
-                        # Check for non-overlap
-                        if xa2 <= xb1 or xb2 <= xa1:
-                            return False  # No overlap in x-axis
-                        if ya2 <= yb1 or yb2 <= ya1:
-                            return False  # No overlap in y-axis
-
-                        return True  # Overlap exists
-
-                    for j in range(len(slide_layout)):
-                        coordinates = slide_layout[j]['coordinate']  # [x1,y1,x2,y2]
-                        if rectangles_overlap(shape[0], shape[1], shape[2], shape[3],
-                                            coordinates[0], coordinates[2], coordinates[1], coordinates[3]):
-                            # Center is inside layout
-                            text_type = slide_layout[j]['label']
-                            text_type = paddle_text_types.get(text_type)
-                            if text_type is None:
-                                text_type = "Body"
-                            break
-
-                slide_source.append({
-                    "type": text_type,
-                    "text": nshape[4].replace('\'', '’')
-                })
-            source.append(slide_source)
-        return source
 
     def run_translation(self, request):
+        logger = Logger("0")
         try:
             request_id = request.get("id")
             if request_id is None:
                 request_id = "0"
-            self.logger.set_publish_id(request_id)
+
+            logger = Logger(request_id)
 
             filename = request.get("filename")
             if filename is None:
                 filename = request_id
-            self.logger.print_and_write(f"Processing request {request_id}, filename: {filename}, with model id: pro")
+            logger.print_and_write(f"Processing request {request_id}, filename: {filename}, with model id: pro")
 
             logger.publish("Fetching files...")
             pdfFilename = f"{request_id}.pdf"
@@ -375,19 +229,8 @@ class PipelinePublic:
             pptFilename = f"{request_id}.pptx"
             pptPath = download_file(request['pptUrl'], pptFilename)
 
-            logger.publish("Analyzing text shapes in pptx file...")
-            extracted_shapes = extract_text_shapes(pptPath)
-            scale_factor = extracted_shapes[0]
-            extracted_shapes.pop(0)
-            number_of_slides = len(extracted_shapes)
-
-            logger.publish("Processing layout types...")
-            layout = self.analyze_document_layout(pdfPath, number_of_slides)
-            os.remove(pdfPath)
-
-            logger.publish("Applying layout types to text shapes...")
-            source = self.apply_layout_types(extracted_shapes, layout)
-            logger.publish("Analyzing shapes complete.")
+            paddle_classifier = PaddleClassifier()
+            source, number_of_slides = paddle_classifier.get_source(pptPath, pdfPath, request_id)
 
             logger.publish("Initializing translation...")
             # # Write source to txt file
@@ -425,21 +268,6 @@ class PipelinePublic:
                     file.write(str(slide))
                     file.write('\n\n')
 
-            # outputJson = []
-            # for i, slide in enumerate(inputJson):
-            #     logger.publish(f"Translating slide #{i + 1} of {number_of_slides}...")
-            #     output_str_list = infer(str(slide).replace('\'', '"'))
-            #     with open(f"outputs/output_{first_id}.txt", 'a') as file:
-            #         file.write(str(output_str_list))
-            #         file.write('\n\n')
-            #     if output_str_list is None:
-            #         logger.publish(f"Translation parsing error in slide #{i + 1}.")
-            #         outputJson.append(None)
-            #     else:
-            #         if len(slide) != len(output_str_list):
-            #             logger.publish(f"Translation length error in slide #{i + 1}.")
-            #         outputJson.append(output_str_list)
-
             # use outputJson to change text
             outputPath = process_pptx_flip(
                 input_pptx_path=pptPath,
@@ -459,8 +287,8 @@ class PipelinePublic:
             logger.publish(uploadUrl)
             return True
         except Exception as e:
-            self.logger.error(e)
+            logger.error(e)
             # Clear request from database
             clear_id(request_id)
-            self.logger.publish(f"Error occurred. Please provide the following code to the developing team: {request_id}")
+            logger.publish(f"Error occurred. Please provide the following code to the developing team: {request_id}")
             return False

@@ -2564,7 +2564,7 @@ def process_pptx_flip(
         The path to the flipped PPTX file if successful, otherwise None.
     """
 
-    logging.set_publish_id(publish_id)
+    logging = Logger(publish_id)
     # Use default options if none provided
     if options is None:
         options = DEFAULT_OPTIONS.copy()
@@ -2837,6 +2837,5 @@ else:
     # --- Initialize Server Logger ---
     try:
         from pipeline_utilities import Logger
-        logging = Logger()
     except Exception as e:
         print(f"Error importing pipeline_utilities: {e}")
