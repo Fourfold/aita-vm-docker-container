@@ -12,7 +12,6 @@ import copy # Needed for deep copying elements
 import re # For parsing adjustment values
 from pathlib import Path # For easier path manipulation
 
-
 # --- Global Namespaces and Constants ---
 NSMAP = {
     "p": "http://schemas.openxmlformats.org/presentationml/2006/main",
@@ -321,17 +320,20 @@ def _set_transform_properties(props: Dict[str, Any], set_flip_h: bool = False) -
 
 # --- Table Column Flipping ---
 
-def _mirror_table_columns(table_element: etree._Element, filename: str, options: Dict[str, bool]) -> bool:
+def _mirror_table_columns(table_element: etree._Element, filename: str, options: Dict[str, bool], container_width_emu: int) -> bool:
     """
-    Reverses the order of table columns (<a:gridCol>) and attempts to swap the *content*
-    of cells (<a:tc>) within each row (<a:tr>). Also attempts to set cell anchor.
+    Reverses the order of table columns (<a:gridCol>), attempts to swap the *content*
+    of cells (<a:tc>) within each row (<a:tr>), adjusts cell anchor, and
+    flips table position properties (<a:tblpPr>).
     WARNING: This is experimental. It currently SKIPS rows containing any merged cells
              (hMerge, vMerge, gridSpan > 1) to avoid table corruption.
 
     Args:
         table_element: The <a:tbl> element.
         filename: The name of the XML file being processed (for logging).
-        options: Dictionary of processing options (used for 'right_align_text').
+        options: Dictionary of processing options.
+        container_width_emu: The width of the direct container (e.g., graphicFrame) of this table in EMUs.
+                             (Currently used for logging/context, direct mirroring of tblpX might use it if needed).
 
     Returns:
         True if any changes were made, False otherwise.
@@ -341,7 +343,7 @@ def _mirror_table_columns(table_element: etree._Element, filename: str, options:
         return False
 
     changed = False
-    logging.warning(f"[{filename}] Attempting EXPERIMENTAL table column flip (Content Swap & Anchor).")
+    logging.warning(f"[{filename}] Attempting EXPERIMENTAL table column flip (Content Swap, Anchor, Table Position). Container width for context: {container_width_emu}")
 
     # 1. Reverse the column definitions in <a:tblGrid>
     grid = table_element.find("a:tblGrid", NSMAP)
@@ -350,9 +352,7 @@ def _mirror_table_columns(table_element: etree._Element, filename: str, options:
         if len(grid_cols) > 1:
             logging.debug(f"[{filename}] Reversing {len(grid_cols)} grid columns definitions (<a:gridCol>).")
             reversed_grid_cols = list(reversed(grid_cols))
-            # Remove existing cols
             for col in grid_cols: grid.remove(col)
-            # Add reversed cols back
             for col in reversed_grid_cols: grid.append(col)
             changed = True
             logging.info(f"[{filename}] Reversed order of <a:gridCol> elements in table grid.")
@@ -360,13 +360,12 @@ def _mirror_table_columns(table_element: etree._Element, filename: str, options:
             logging.debug(f"[{filename}] Table has 0 or 1 grid columns, no grid definition reversal needed.")
     else:
         logging.warning(f"[{filename}] Table found but required <a:tblGrid> element is missing. Cannot safely reverse columns.")
-        return False # Cannot proceed without grid definition
 
     # 2. Reverse the *content* of cells within each row (<a:tr>)
     rows = table_element.xpath("./a:tr", namespaces=NSMAP)
     logging.debug(f"[{filename}] Found {len(rows)} rows (<a:tr>) in table for cell content swap.")
-    rows_swapped = 0
-    rows_skipped_merge = 0
+    rows_swapped_count = 0
+    rows_skipped_merge_count = 0
 
     for r_idx, row in enumerate(rows):
         cells = row.xpath("./a:tc", namespaces=NSMAP)
@@ -375,91 +374,150 @@ def _mirror_table_columns(table_element: etree._Element, filename: str, options:
             logging.debug(f"[{filename}] Row {r_idx}: Skipping content swap (0 or 1 cell).")
             continue
 
-        # --- Check for Merged Cells (Horizontal or Vertical) ---
-        # If any cell in the row has vMerge or hMerge or gridSpan > 1, skip the row.
         has_merge = any(
             c.get('gridSpan', '1') != '1' or c.get('hMerge') == '1' or c.get('vMerge') == '1'
             for c in cells
         )
         if has_merge:
-            logging.error(f"[{filename}] Row {r_idx}: SKIPPING content swap because row contains merged/spanned cells (gridSpan, hMerge, or vMerge). This feature is not supported.")
-            rows_skipped_merge += 1
+            logging.error(f"[{filename}] Row {r_idx}: SKIPPING content swap because row contains merged/spanned cells. This feature is not supported.")
+            rows_skipped_merge_count += 1
             continue
 
-        # --- Proceed with Content Swap if No Merges Found ---
         logging.debug(f"[{filename}] Row {r_idx}: Attempting to swap content of {num_cells} cells.")
-        row_content_swapped = False
+        row_content_swapped_this_iteration = False
         try:
-            # Extract content (all children) from each cell
-            cell_contents = []
-            for cell in cells:
-                # Make a deep copy of children to avoid issues when clearing/appending
-                content = [copy.deepcopy(child) for child in cell]
-                cell_contents.append(content)
-
-            # Reverse the list of contents
+            cell_contents = [[copy.deepcopy(child) for child in cell] for cell in cells]
             reversed_contents = list(reversed(cell_contents))
-
-            # Clear original cells and append reversed content
             for i, cell in enumerate(cells):
-                # Remove all existing children from the cell
-                for child in cell:
-                    cell.remove(child)
-                # Append the content from the corresponding reversed list
-                for content_element in reversed_contents[i]:
-                    cell.append(content_element)
-
+                for child in cell: cell.remove(child)
+                for content_element in reversed_contents[i]: cell.append(content_element)
             changed = True
-            rows_swapped += 1
-            row_content_swapped = True # Mark that this row's content was swapped
+            rows_swapped_count += 1
+            row_content_swapped_this_iteration = True
             logging.debug(f"[{filename}] Row {r_idx}: Successfully swapped content of {num_cells} cells.")
-
         except Exception as e:
             logging.error(f"[{filename}] Row {r_idx}: Error during cell content swap: {e}")
-            # Attempting to swap content failed, potentially leaving the row in a bad state.
 
-        # --- Set Cell Properties (e.g., anchor) if content was swapped ---
-        # Attempt to set anchor='t' in tcPr to potentially help with text alignment rendering
-        if row_content_swapped and options.get('right_align_text', False):
+        if row_content_swapped_this_iteration and options.get('right_align_text', False):
             logging.debug(f"[{filename}] Row {r_idx}: Attempting to set cell properties (anchor='t') for swapped cells.")
-            cell_props_set_count = 0
-            for cell in cells:
+            cell_props_set_count_this_row = 0
+            for cell_idx, cell in enumerate(cells):
                 try:
                     tcPr = cell.find("a:tcPr", NSMAP)
                     if tcPr is None:
-                        # Create tcPr if missing, insert it before any content (like txBody)
                         tcPr = etree.Element(etree.QName(NSMAP['a'], 'tcPr'))
-                        first_content = cell.find("*") # Find first child element
-                        if first_content is not None:
-                            first_content.addprevious(tcPr)
-                        else:
-                            cell.append(tcPr)
-                        logging.debug(f"[{filename}] Row {r_idx}, Cell: Created missing <a:tcPr>.")
-
-                    # Set anchor attribute to 't' (top)
+                        first_content_child_in_cell = cell.find("*")
+                        if first_content_child_in_cell is not None: first_content_child_in_cell.addprevious(tcPr)
+                        else: cell.append(tcPr)
                     if tcPr.get("anchor") != "t":
                         tcPr.set("anchor", "t")
-                        logging.debug(f"[{filename}] Row {r_idx}, Cell: Set anchor='t' in <a:tcPr>.")
-                        changed = True # Setting property is a change
-                        cell_props_set_count += 1
-                    # Optionally remove anchorCtr if needed, but let's try just setting anchor first
-                    # if tcPr.get("anchorCtr") is not None:
-                    #     del tcPr.attrib["anchorCtr"]
-                    #     logging.debug(f"[{filename}] Row {r_idx}, Cell: Removed anchorCtr attribute.")
-                    #     changed = True
-
+                        changed = True
+                        cell_props_set_count_this_row += 1
                 except Exception as e_tcpr:
-                    logging.error(f"[{filename}] Row {r_idx}, Cell: Error setting cell properties: {e_tcpr}")
-            if cell_props_set_count > 0:
-                logging.info(f"[{filename}] Row {r_idx}: Set anchor='t' for {cell_props_set_count} cells.")
+                    logging.error(f"[{filename}] Row {r_idx}, Cell #{cell_idx}: Error setting cell properties: {e_tcpr}")
+            if cell_props_set_count_this_row > 0:
+                logging.info(f"[{filename}] Row {r_idx}: Set anchor='t' for {cell_props_set_count_this_row} cells.")
+
+    if rows_swapped_count > 0: logging.info(f"[{filename}] Successfully swapped content in {rows_swapped_count} table rows.")
+    if rows_skipped_merge_count > 0: logging.warning(f"[{filename}] Skipped content swap for {rows_skipped_merge_count} table rows due to merged/spanned cells.")
+
+    # 3. Adjust Table Position Properties (<a:tblpPr>)
+    tblPr = table_element.find("a:tblPr", NSMAP)
+    if tblPr is not None:
+        tblpPr = tblPr.find("a:tblpPr", NSMAP)
+        if tblpPr is not None:
+            logging.debug(f"[{filename}] Found <a:tblpPr> for table. Original attrs: {dict(tblpPr.attrib)}")
+            tblpPr_changed_flag = False
+
+            original_tblpXSpec = tblpPr.get("tblpXSpec")
+            original_tblpX_str = tblpPr.get("tblpX")
+            original_horzAnchor = tblpPr.get("horzAnchor")
+            original_leftFromText_str = tblpPr.get("leftFromText")
+            original_rightFromText_str = tblpPr.get("rightFromText")
+
+            # Primary: Handle tblpXSpec and tblpX
+            if original_tblpXSpec is not None:
+                if original_tblpXSpec == "l": tblpPr.set("tblpXSpec", "r"); tblpPr_changed_flag = True; logging.info(f"[{filename}] TablePos: tblpXSpec 'l' -> 'r'.")
+                elif original_tblpXSpec == "r": tblpPr.set("tblpXSpec", "l"); tblpPr_changed_flag = True; logging.info(f"[{filename}] TablePos: tblpXSpec 'r' -> 'l'.")
+                elif original_tblpXSpec == "inside": tblpPr.set("tblpXSpec", "outside"); tblpPr_changed_flag = True; logging.info(f"[{filename}] TablePos: tblpXSpec 'inside' -> 'outside'.")
+                elif original_tblpXSpec == "outside": tblpPr.set("tblpXSpec", "inside"); tblpPr_changed_flag = True; logging.info(f"[{filename}] TablePos: tblpXSpec 'outside' -> 'inside'.")
+                # If tblpXSpec is 'ctr', 'pct', 'abs', it's not simply flipped.
+                # tblpX value is an offset from the edge defined by tblpXSpec, so it usually doesn't change if tblpXSpec is flipped.
+            elif original_tblpX_str is not None: # tblpXSpec is ABSENT, tblpX is present (implies absolute offset from left of container)
+                # For RTL, this should become an offset from the right. We achieve this by setting tblpXSpec="r".
+                # The tblpX value itself (the offset magnitude) remains the same.
+                tblpPr.set("tblpXSpec", "r")
+                tblpPr_changed_flag = True
+                logging.info(f"[{filename}] TablePosition: Added tblpXSpec='r' (was absent). tblpX='{original_tblpX_str}' is now offset from right.")
+
+            # Secondary/Complementary: Handle horzAnchor and FromText offsets
+            # These might be used if tblpXSpec is not present or for finer control.
+            if original_horzAnchor == "l":
+                tblpPr.set("horzAnchor", "r"); tblpPr_changed_flag = True
+                logging.info(f"[{filename}] TablePosition: horzAnchor 'l' -> 'r'.")
+            elif original_horzAnchor == "r":
+                tblpPr.set("horzAnchor", "l"); tblpPr_changed_flag = True
+                logging.info(f"[{filename}] TablePosition: horzAnchor 'r' -> 'l'.")
+            elif original_horzAnchor == "inside":
+                tblpPr.set("horzAnchor", "outside"); tblpPr_changed_flag = True
+                logging.info(f"[{filename}] TablePosition: horzAnchor 'inside' -> 'outside'.")
+            elif original_horzAnchor == "outside":
+                tblpPr.set("horzAnchor", "inside"); tblpPr_changed_flag = True
+                logging.info(f"[{filename}] TablePosition: horzAnchor 'outside' -> 'inside'.")
+
+            # Swap leftFromText and rightFromText values
+            new_left_from_text_val_str = original_rightFromText_str
+            new_right_from_text_val_str = original_leftFromText_str
+
+            attr_changed_lft = False
+            if new_left_from_text_val_str is not None:
+                if tblpPr.get("leftFromText") != new_left_from_text_val_str:
+                    tblpPr.set("leftFromText", new_left_from_text_val_str); attr_changed_lft = True
+            elif "leftFromText" in tblpPr.attrib:
+                del tblpPr.attrib["leftFromText"]; attr_changed_lft = True
+            if attr_changed_lft: logging.info(f"[{filename}] TablePosition: Updated leftFromText (original right: {original_rightFromText_str}, original left: {original_leftFromText_str})")
+
+            attr_changed_rft = False
+            if new_right_from_text_val_str is not None:
+                if tblpPr.get("rightFromText") != new_right_from_text_val_str:
+                    tblpPr.set("rightFromText", new_right_from_text_val_str); attr_changed_rft = True
+            elif "rightFromText" in tblpPr.attrib:
+                del tblpPr.attrib["rightFromText"]; attr_changed_rft = True
+            if attr_changed_rft: logging.info(f"[{filename}] TablePosition: Updated rightFromText (original left: {original_leftFromText_str}, original right: {original_rightFromText_str})")
+            
+            if attr_changed_lft or attr_changed_rft: tblpPr_changed_flag = True
+
+            if tblpPr_changed_flag:
+                changed = True
+                logging.info(f"[{filename}] Table Position Properties (<a:tblpPr>) were modified.")
+        else:
+            logging.debug(f"[{filename}] No <a:tblpPr> element found within <a:tblPr> for this table.")
+    else:
+        logging.debug(f"[{filename}] No <a:tblPr> element found for this table, skipping tblpPr processing.")
+
+    # 4. Apply alignment to default text style within the table
+    if tblPr is not None and (options.get('right_align_text', False) or options.get('set_rtl_paragraphs', False)):
+        defTxStyle = tblPr.find("a:defTxStyle", NSMAP)
+        if defTxStyle is None:
+            defTxStyle = etree.SubElement(tblPr, etree.QName(NSMAP['a'], 'defTxStyle'))
+            changed = True
+        defPPr_table = defTxStyle.find("a:defPPr", NSMAP)
+        if defPPr_table is None:
+            defPPr_table = etree.SubElement(defTxStyle, etree.QName(NSMAP['a'], 'defPPr'))
+            changed = True
+        
+        context_table_style = f"Table default text style"
+        # Assuming _apply_alignment_to_defPPr is defined elsewhere and handles alignment/RTL for pPr elements
+        if '_apply_alignment_to_defPPr' in globals() and callable(globals()['_apply_alignment_to_defPPr']):
+            if _apply_alignment_to_defPPr(defPPr_table, options, filename, context_table_style):
+                logging.info(f"[{filename}] Applied alignment/RTL changes to {context_table_style}.")
+                changed = True
+        else:
+            logging.warning(f"[{filename}] Helper function _apply_alignment_to_defPPr not found, skipping default text style alignment for table.")
 
 
-    if rows_swapped > 0:
-        logging.info(f"[{filename}] Successfully swapped content in {rows_swapped} table rows.")
-    if rows_skipped_merge > 0:
-        logging.warning(f"[{filename}] Skipped content swap for {rows_skipped_merge} table rows due to merged/spanned cells.")
-    if not changed and rows_skipped_merge == 0: # Only log 'no changes' if nothing was skipped either
-        logging.info(f"[{filename}] No changes applied during table content swap (no reversible rows found or needed).")
+    if not changed and rows_skipped_merge_count == 0 and rows_swapped_count == 0:
+        logging.info(f"[{filename}] No changes applied during table column/content/position processing.")
 
     return changed
 
@@ -1241,7 +1299,8 @@ def process_slide_xml_for_flipping(
                 # A. Table Flipping (if it's a table and option enabled)
                 if content_type == "Table" and options.get('flip_table_columns', False):
                     logging.debug(f"[{filename}] >>> Processing Table within graphicFrame #{elem_idx} for column flip <<<")
-                    if content_elem is not None and _mirror_table_columns(content_elem, filename, options):
+                    container_width_for_table = frame_props.get('cx', slide_width_emu) if frame_props else slide_width_emu
+                    if content_elem is not None and _mirror_table_columns(content_elem, filename, options, container_width_for_table):
                         frame_changed = True
 
                     # Also attempt to set default text style for the table
@@ -1478,13 +1537,14 @@ def process_slide_xml_for_flipping(
         if options.get('replace_text', False) and slide_replacement_data: # Ensure data is present
             logging.info(f"[{filename}] Starting text replacement")
             text_replaced_count = 0
-            # XPath targets text bodies in shapes (p:sp) and table cells (a:tc)
+            # XPath targets text containers (shapes and table cells) that have text bodies
             # Excludes shapes within SmartArt diagrams (ancestor::dgm:*)
-            target_text_bodies = root_elem.xpath(
-                ".//p:sp[p:txBody and not(ancestor::dgm:*)]/p:txBody | .//a:tc/a:txBody",
+            # Use the same approach as Part 2 for consistency
+            target_text_containers = root_elem.xpath(
+                ".//p:sp[p:txBody and not(ancestor::dgm:*)] | .//a:tc[a:txBody]",
                 namespaces=NSMAP
             )
-            logging.debug(f"[{filename}] Found {len(target_text_bodies)} text bodies for potential replacement.")
+            logging.debug(f"[{filename}] Found {len(target_text_containers)} text containers for potential replacement.")
 
             replacement_map = {item['id']: item['Arabic'] for item in slide_replacement_data if isinstance(item.get('id'), int) and isinstance(item.get('Arabic'), str)}
             if not replacement_map:
@@ -1493,12 +1553,54 @@ def process_slide_xml_for_flipping(
             current_text_id_in_file = 1 # Use a file-local counter
             
             if replacement_map: # Proceed only if map has entries
-                for txBody in target_text_bodies:
+                for text_container_elem in target_text_containers:
+                    # Get the text body from the container
+                    is_shape = text_container_elem.tag == etree.QName(NSMAP['p'], 'sp')
+                    is_table_cell = text_container_elem.tag == etree.QName(NSMAP['a'], 'tc')
+                    
+                    container_type = "Shape" if is_shape else "TableCell" if is_table_cell else "Unknown"
+                    logging.debug(f"[{filename}] Processing {container_type} container for text replacement...")
+                    
+                    txBody = text_container_elem.find("p:txBody", NSMAP) if is_shape else text_container_elem.find("a:txBody", NSMAP)
+                    if txBody is None:
+                        logging.warning(f"[{filename}] Skipping {container_type} container - no txBody found. This might indicate an unusual text structure.")
+                        # Log more details about the container structure for debugging
+                        children_tags = [etree.QName(child.tag).localname for child in text_container_elem]
+                        logging.debug(f"[{filename}] {container_type} container children: {children_tags}")
+                        continue
+                        
                     paragraphs = txBody.findall("./a:p", namespaces=NSMAP)
                     for p_elem in paragraphs:
                         runs = p_elem.findall("./a:r", namespaces=NSMAP)
                         paragraph_text_content = "".join(p_elem.xpath(".//a:t/text()", namespaces=NSMAP)).strip()
 
+                        # Debug logging for edge cases
+                        logging.debug(f"[{filename}] Processing paragraph with {len(runs)} runs, text content: '{paragraph_text_content[:50]}...'")
+                        
+                        # Handle cases where paragraph has text but no runs (edge case)
+                        if not runs and paragraph_text_content:
+                            logging.warning(f"[{filename}] Found paragraph with text but no runs - this is unusual. Text: '{paragraph_text_content[:30]}...'")
+                            # Create a basic run structure
+                            new_run = etree.Element(etree.QName(NSMAP['a'], 'r'))
+                            new_text_elem = etree.SubElement(new_run, etree.QName(NSMAP['a'], 't'))
+                            replacement_text = replacement_map.get(current_text_id_in_file)
+                            if replacement_text is not None:
+                                new_text_elem.text = replacement_text
+                                logging.info(f"[{filename}] Replaced text in runless paragraph with: '{replacement_text[:30]}...'")
+                            else:
+                                new_text_elem.text = paragraph_text_content
+                                logging.warning(f"[{filename}] No replacement text found for ID {current_text_id_in_file}. Using original text: '{paragraph_text_content[:30]}...'")
+                            
+                            # Clear paragraph and add the new run
+                            for child in list(p_elem): p_elem.remove(child)
+                            p_elem.append(new_run)
+                            
+                            current_text_id_in_file += 1
+                            text_replaced_count += 1
+                            overall_changed = True
+                            continue
+
+                        # Handle normal case with runs and text content
                         if runs and paragraph_text_content: 
                             pPr = p_elem.find("a:pPr", NSMAP)
                             preserved_pPr = copy.deepcopy(pPr) if pPr is not None else None
@@ -1521,12 +1623,12 @@ def process_slide_xml_for_flipping(
                                 if options.get('set_arabic_proofing_lang', False):
                                     first_rPr.set("lang", "ar-SA")
                                     logging.debug(f"[{filename}] Set Arabic proofing language on replaced text run.")
-                                elif options.get('set_arabic_proofing_lang', False):
-                                    # Create rPr with Arabic language if no existing rPr
-                                    new_rPr = etree.Element(etree.QName(NSMAP['a'], 'rPr'))
-                                    new_rPr.set("lang", "ar-SA")
-                                    new_run.append(new_rPr)
-                                    logging.debug(f"[{filename}] Created rPr with Arabic proofing language for replaced text run.")
+                            elif options.get('set_arabic_proofing_lang', False):
+                                # Create rPr with Arabic language if no existing rPr
+                                new_rPr = etree.Element(etree.QName(NSMAP['a'], 'rPr'))
+                                new_rPr.set("lang", "ar-SA")
+                                new_run.append(new_rPr)
+                                logging.debug(f"[{filename}] Created rPr with Arabic proofing language for replaced text run.")
                             new_text_elem = etree.SubElement(new_run, etree.QName(NSMAP['a'], 't'))
                             
                             replacement_text = replacement_map.get(current_text_id_in_file)
@@ -1538,9 +1640,9 @@ def process_slide_xml_for_flipping(
                                 logging.warning(f"[{filename}] No replacement text found for ID {current_text_id_in_file}. Using original text: '{paragraph_text_content[:30]}...'")
                             
                             # Ensure xml:space="preserve" if original text had leading/trailing spaces or multiple spaces
-                            if paragraph_text_content != paragraph_text_content.strip() or "  " in paragraph_text_content:
-                                from lxml.etree import XML_NS
-                                new_text_elem.set(etree.QName(XML_NS, 'space'), 'preserve')
+                            #if paragraph_text_content != paragraph_text_content.strip() or "  " in paragraph_text_content:
+                                #from lxml.etree import XML_NS
+                                #new_text_elem.set(etree.QName(XML_NS, 'space'), 'preserve')
 
                             p_elem.append(new_run)
                             if preserved_endParaRPr is not None: p_elem.append(preserved_endParaRPr)
@@ -1548,8 +1650,36 @@ def process_slide_xml_for_flipping(
                             current_text_id_in_file += 1
                             text_replaced_count += 1
                             overall_changed = True
+            
+            # Additional fallback: catch any text elements that might have been missed
+            if replacement_map:
+                logging.debug(f"[{filename}] Running fallback text search for any missed text elements...")
+                # More comprehensive search for any text elements
+                all_text_elements = root_elem.xpath(".//a:t[text() and not(ancestor::dgm:*)]", namespaces=NSMAP)
+                fallback_replaced_count = 0
+                
+                for text_elem in all_text_elements:
+                    current_text = text_elem.text
+                    # Check if this text wasn't already replaced (Arabic text or already processed)
+                    if current_text and current_text.strip() and current_text not in replacement_map.values():
+                        # Check if we have a replacement for the current ID
+                        replacement_text = replacement_map.get(current_text_id_in_file)
+                        if replacement_text is not None:
+                            text_elem.text = replacement_text
+                            fallback_replaced_count += 1
+                            current_text_id_in_file += 1
+                            overall_changed = True
+                            logging.info(f"[{filename}] Fallback replaced missed text: '{current_text[:30]}...' -> '{replacement_text[:30]}...'")
+                        else:
+                            # No more replacement text available
+                            break
+                
+                if fallback_replaced_count > 0:
+                    text_replaced_count += fallback_replaced_count
+                    logging.warning(f"[{filename}] Fallback replacement caught {fallback_replaced_count} text elements that were missed by the main logic.")
+            
             if text_replaced_count > 0:
-                logging.info(f"[{filename}] Replaced text content in {text_replaced_count} paragraphs.")
+                logging.info(f"[{filename}] Replaced text content in {text_replaced_count} total text elements (paragraphs + fallback).")
         elif options.get('replace_text', False) and not slide_replacement_data:
              logging.info(f"[{filename}] Text replacement option is ON, but no replacement data was provided for this slide. Skipping text replacement.")
         # --- End of Part 1.5 ---
@@ -2230,7 +2360,7 @@ def flip_pptx_layout(
             logging.error("BadZipFile error during extraction. Input file might be corrupted or not a PPTX.")
             return None
         except Exception as e:
-            logging.exception("Error during PPTX extraction:")
+            logging.exception(f"Error extracting PPTX: {str(e)}")
             return None
 
         logging.info("20% - Reading presentation properties...")
