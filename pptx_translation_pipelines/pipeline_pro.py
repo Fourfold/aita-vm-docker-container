@@ -24,6 +24,7 @@ from firebase_admin import credentials, storage
 from datetime import timedelta
 from pipeline_utilities import *
 from slide_flipping import process_pptx_flip
+from pipeline_public import PipelinePublic
 
 model_name = "gemmax2_9b_finetuned"
 base_model = "ModelSpace/GemmaX2-28-9B-Pretrain"
@@ -55,12 +56,18 @@ paddle_text_types = {
 }
 
 class PipelinePro:
-    def __init__(self, model_name=model_name, base_model=base_model):
-        self.model_name = model_name
-        self.base_model = base_model
-        self.logger = Logger()
-        self.initialize_model()
-        self.paddle_model = create_model(model_name="PP-DocLayout-L")
+    _instance = None
+
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            cls._instance = super(PipelinePro, cls).__new__(cls)
+            cls._instance.model_name = model_name
+            cls._instance.base_model = base_model
+            cls._instance.logger = Logger()
+            cls._instance.initialize_model()
+            cls._instance.paddle_model = create_model(model_name="PP-DocLayout-L")
+        return cls._instance
+
 
     def initialize_model(self):
         # --- Configuration ---
@@ -109,10 +116,12 @@ class PipelinePro:
         print("LoRA adapters loaded successfully.")
         print(f"Final model (with adapters) ready on device: {self.model.device}")
 
+
     def get_prompt(input_json: str, output_json: str = ""):
         instruction = "Translate the following sentences from english to arabic. Return the translations by id in JSON format. MAKE SURE THAT THE NUMBER OF ITEMS IN THE ENGLISH AND ARABIC JSON LISTS IS EQUAL."
         return f"{instruction}\nEnglish: {input_json}\nArabic: {output_json}"
-    
+
+
     def reevaluate(a: str):
         b = re.sub(r"'", "¨", a)
         b = re.sub(r'\[{"id"', "[{'id'", b)
@@ -128,6 +137,7 @@ class PipelinePro:
             return c
         except (ValueError, SyntaxError, TypeError) as e:
             return None
+
 
     def infer(self, input_json: str, use_text_stream: bool = False):
         EOS_TOKEN = self.tokenizer.eos_token
@@ -165,6 +175,7 @@ class PipelinePro:
                         out_list_repr = None
 
         return out_list_repr
+
 
     def convert_pdf_to_images_sm(self, pdf_path, output_folder='pdf2image_output'):
         """Converts a PDF file to image files in the SageMaker environment."""
@@ -290,6 +301,7 @@ class PipelinePro:
             source.append(slide_source)
         return source
 
+
     def run_translation(self, request):
         try:
             request_id = request.get("id")
@@ -336,23 +348,43 @@ class PipelinePro:
                         'Text Type': text['type'],
                         'English': text['text']
                     })
-                inputJson.append(slideJson)
+                inputJson.append(str(slideJson).replace('\'', '"'))
 
             outputJson = []
             for i, slide in enumerate(inputJson):
                 self.logger.publish(f"Translating slide #{i + 1} of {number_of_slides}...")
-                # output_str_list = infer(slide)
-                output_str_list = self.infer(str(slide).replace('\'', '"'))
+                output_str_list = self.infer(slide)
                 with open(f"outputs/output_{request_id}.txt", 'a') as file:
                     file.write(str(output_str_list))
                     file.write('\n\n')
+
+                selected_output = None
+                try_gpt = False
+
                 if output_str_list is None:
                     self.logger.publish(f"Translation parsing error in slide #{i + 1}.")
-                    outputJson.append(None)
+                    try_gpt = True
+                elif len(slide) != len(output_str_list):
+                    self.logger.publish(f"Translation length error in slide #{i + 1}.")
+                    try_gpt = True
+                    selected_output = output_str_list
                 else:
-                    if len(slide) != len(output_str_list):
+                    selected_output = output_str_list
+
+                if try_gpt:
+                    self.logger.publish(f"Retrying translation for slide #{i + 1}.")
+                    gpt_pipeline = PipelinePublic()
+                    output_str_list = gpt_pipeline.infer(slide)
+                    if output_str_list is None:
+                        self.logger.publish(f"Translation parsing error in slide #{i + 1}.")
+                    elif len(slide) != len(output_str_list):
                         self.logger.publish(f"Translation length error in slide #{i + 1}.")
-                    outputJson.append(output_str_list)
+                        if selected_output is None:
+                            selected_output = output_str_list
+                    else:
+                        selected_output = output_str_list
+                
+                outputJson.append(selected_output)
 
             # use outputJson to change text
             outputPath = process_pptx_flip(
@@ -372,6 +404,7 @@ class PipelinePro:
             self.logger.publish("DONE")
             self.logger.publish(uploadUrl)
             return True
+        
         except Exception as e:
             self.logger.error(e)
             # Clear request from database

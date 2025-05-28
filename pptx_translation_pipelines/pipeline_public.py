@@ -66,12 +66,17 @@ paddle_text_types = {
 }
 
 class PipelinePublic:
-    def __init__(self, model=model, parallelWorkers=parallelWorkers):
-        self.model = model
-        self.parallelWorkers = parallelWorkers
-        self.logger = Logger()
-        self.token_limiter = PipelinePublic.TokenRateLimiter(tpm_limit=30000, model_name="gpt-4o")
-        self.paddle_model = create_model(model_name="PP-DocLayout-L")
+    _instance = None
+
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            cls._instance = super(PipelinePublic, cls).__new__(cls)
+            cls._instance.model = model
+            cls._instance.parallelWorkers = parallelWorkers
+            cls._instance.logger = Logger()
+            cls._instance.token_limiter = PipelinePublic.TokenRateLimiter(tpm_limit=30000, model_name="gpt-4o")
+            cls._instance.paddle_model = create_model(model_name="PP-DocLayout-L")
+        return cls._instance
 
     class TokenRateLimiter:
         EXPECTED_COMPLETION_TOKENS_ESTIMATE = 600
@@ -398,7 +403,7 @@ class PipelinePublic:
                         'Text Type': text['type'],
                         'English': text['text']
                     })
-                inputJson.append(slideJson)
+                inputJson.append(str(slideJson).replace('\'', '"'))
                 outputJson.append(None)
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=parallelWorkers) as executor:
