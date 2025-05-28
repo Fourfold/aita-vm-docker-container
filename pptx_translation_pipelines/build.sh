@@ -21,7 +21,7 @@ gcloud artifacts repositories create aita-vm-image \
 # Grant permissions to Cloud Build service account
 # Get the project number for the Cloud Build service account
 PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format="value(projectNumber)")
-CLOUD_BUILD_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"\
+CLOUD_BUILD_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 gcloud projects add-iam-policy-binding $PROJECT_ID \
     --member="serviceAccount:${CLOUD_BUILD_SA}" \
     --role="roles/artifactregistry.writer"
