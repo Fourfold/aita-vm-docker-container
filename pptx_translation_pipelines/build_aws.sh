@@ -51,58 +51,85 @@ phases:
       - echo Building the Docker image...
       - |
         if [ ! -z "\$DOCKERHUB_USERNAME" ] && [ ! -z "\$DOCKERHUB_TOKEN" ]; then
-          echo "Using Docker Hub NVIDIA image..."
-          # Create a temporary Dockerfile with better apt handling
-          cat > Dockerfile.tmp << 'DOCKERFILE_EOF'
-FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu20.04
-
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Fix apt repositories and update
-RUN apt-get clean && \
-    rm -rf /var/lib/apt/lists/* && \
-    apt-get update --fix-missing && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends --fix-missing \
-        python3.9 \
-        python3-pip \
-        python3-distutils \
-        curl \
-        wget \
-    && apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-DOCKERFILE_EOF
-          # Copy the rest of the original Dockerfile content (excluding the FROM and initial RUN)
-          tail -n +\$(grep -n "RUN apt-get update" Dockerfile | head -1 | cut -d: -f1 | xargs expr 1 +) Dockerfile >> Dockerfile.tmp || tail -n +\$(grep -n "COPY\|ADD\|WORKDIR\|ENV\|EXPOSE\|CMD\|ENTRYPOINT" Dockerfile | head -1 | cut -d: -f1) Dockerfile >> Dockerfile.tmp
-          docker build -f Dockerfile.tmp -t \$IMAGE_REPO_NAME:\$IMAGE_TAG .
-          rm -f Dockerfile.tmp
+          BASE_IMAGE="nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu20.04"
         else
-          echo "Using AWS Public ECR NVIDIA image as fallback..."
-          # Create a temporary Dockerfile that uses public ECR NVIDIA image with better apt handling
-          cat > Dockerfile.tmp << 'DOCKERFILE_EOF'
-FROM public.ecr.aws/nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu20.04
+          BASE_IMAGE="public.ecr.aws/nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu20.04"
+        fi
+        
+        # Create a robust Dockerfile that handles repository issues
+        cat > Dockerfile.robust << 'DOCKERFILE_EOF'
+FROM \${BASE_IMAGE}
 
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Fix apt repositories and update
+# Configure apt to use alternative mirrors and handle failures gracefully
+RUN echo "deb http://us.archive.ubuntu.com/ubuntu/ focal main restricted universe multiverse" > /etc/apt/sources.list && \
+    echo "deb http://us.archive.ubuntu.com/ubuntu/ focal-updates main restricted universe multiverse" >> /etc/apt/sources.list && \
+    echo "deb http://us.archive.ubuntu.com/ubuntu/ focal-backports main restricted universe multiverse" >> /etc/apt/sources.list && \
+    echo "deb http://security.ubuntu.com/ubuntu focal-security main restricted universe multiverse" >> /etc/apt/sources.list
+
+# Install Python and essential packages with retry logic
 RUN apt-get clean && \
     rm -rf /var/lib/apt/lists/* && \
-    apt-get update --fix-missing && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends --fix-missing \
-        python3.9 \
-        python3-pip \
-        python3-distutils \
-        curl \
-        wget \
-    && apt-get clean && \
+    for i in 1 2 3; do \
+        apt-get update --fix-missing && \
+        apt-get install -y --no-install-recommends \
+            python3.9 \
+            python3-pip \
+            python3-distutils \
+            python3-setuptools \
+            python3-wheel \
+            poppler-utils \
+            swig \
+            build-essential \
+            python3.9-dev \
+            curl \
+            wget \
+            ca-certificates \
+        && break || sleep 10; \
+    done && \
+    apt-get clean && \
     rm -rf /var/lib/apt/lists/*
+
+# Set Python 3.9 as default
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.9 1
+
+# Create work directory
+WORKDIR /app
+
+# Copy LoRA adapters first (can be cached if they don't change often)
+COPY ./gemmax2_9b_finetuned /app/gemmax2_9b_finetuned
+
+# Copy requirements and install dependencies
+COPY requirements.txt .
+RUN pip3 install --no-cache-dir -r requirements.txt
+
+# Install PaddlePaddle
+RUN pip3 install paddlepaddle-gpu==3.0.0rc0 -i https://www.paddlepaddle.org.cn/packages/stable/cu123/
+
+# Install additional packages
+RUN pip3 install paddlex==3.0rc0 faiss-cpu==1.8.0 simsimd==1.1.2 --use-pep517
+
+# Copy the rest of the files
+COPY . .
+
+# Expose the port FastAPI/Uvicorn will run on
+EXPOSE 8000
+
+# Default command to run your app with better logging
+CMD ["python", "start_server.py"]
 DOCKERFILE_EOF
-          # Copy the rest of the original Dockerfile content
-          tail -n +\$(grep -n "RUN apt-get update" Dockerfile | head -1 | cut -d: -f1 | xargs expr 1 +) Dockerfile >> Dockerfile.tmp || tail -n +\$(grep -n "COPY\|ADD\|WORKDIR\|ENV\|EXPOSE\|CMD\|ENTRYPOINT" Dockerfile | head -1 | cut -d: -f1) Dockerfile >> Dockerfile.tmp
-          docker build -f Dockerfile.tmp -t \$IMAGE_REPO_NAME:\$IMAGE_TAG .
-          rm -f Dockerfile.tmp
-        fi
+        
+        # Replace BASE_IMAGE placeholder with actual value
+        sed "s|\\\${BASE_IMAGE}|\$BASE_IMAGE|g" Dockerfile.robust > Dockerfile.final
+        
+        # Build with the robust Dockerfile
+        docker build -f Dockerfile.final -t \$IMAGE_REPO_NAME:\$IMAGE_TAG .
+        
+        # Clean up temporary files
+        rm -f Dockerfile.robust Dockerfile.final
       - docker tag \$IMAGE_REPO_NAME:\$IMAGE_TAG \$AWS_ACCOUNT_ID.dkr.ecr.\$AWS_DEFAULT_REGION.amazonaws.com/\$IMAGE_REPO_NAME:\$IMAGE_TAG
   post_build:
     commands:
