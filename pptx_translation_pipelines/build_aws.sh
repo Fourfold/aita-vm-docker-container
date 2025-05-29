@@ -36,11 +36,30 @@ phases:
     commands:
       - echo Logging in to Amazon ECR...
       - aws ecr get-login-password --region \$AWS_DEFAULT_REGION | docker login --username AWS --password-stdin \$AWS_ACCOUNT_ID.dkr.ecr.\$AWS_DEFAULT_REGION.amazonaws.com
+      - echo Logging in to Docker Hub to avoid rate limits...
+      - |
+        if [ ! -z "\$DOCKERHUB_USERNAME" ] && [ ! -z "\$DOCKERHUB_TOKEN" ]; then
+          echo "Authenticating with Docker Hub..."
+          echo \$DOCKERHUB_TOKEN | docker login --username \$DOCKERHUB_USERNAME --password-stdin
+        else
+          echo "Docker Hub credentials not provided. Using public ECR for NVIDIA images..."
+          aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
+        fi
   build:
     commands:
       - echo Build started on \`date\`
       - echo Building the Docker image...
-      - docker build -t \$IMAGE_REPO_NAME:\$IMAGE_TAG .
+      - |
+        if [ ! -z "\$DOCKERHUB_USERNAME" ] && [ ! -z "\$DOCKERHUB_TOKEN" ]; then
+          echo "Using Docker Hub NVIDIA image..."
+          docker build -t \$IMAGE_REPO_NAME:\$IMAGE_TAG .
+        else
+          echo "Using AWS Public ECR NVIDIA image as fallback..."
+          # Create a temporary Dockerfile that uses public ECR NVIDIA image
+          sed 's|nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu20.04|public.ecr.aws/nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu20.04|g' Dockerfile > Dockerfile.tmp
+          docker build -f Dockerfile.tmp -t \$IMAGE_REPO_NAME:\$IMAGE_TAG .
+          rm -f Dockerfile.tmp
+        fi
       - docker tag \$IMAGE_REPO_NAME:\$IMAGE_TAG \$AWS_ACCOUNT_ID.dkr.ecr.\$AWS_DEFAULT_REGION.amazonaws.com/\$IMAGE_REPO_NAME:\$IMAGE_TAG
   post_build:
     commands:
@@ -122,7 +141,7 @@ aws codebuild create-project \
     --name $PROJECT_NAME \
     --source '{
         "type": "NO_SOURCE",
-        "buildspec": "version: 0.2\n\nphases:\n  pre_build:\n    commands:\n      - echo Logging in to Amazon ECR...\n      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com\n  build:\n    commands:\n      - echo Build started on `date`\n      - echo Building the Docker image...\n      - docker build -t $IMAGE_REPO_NAME:$IMAGE_TAG .\n      - docker tag $IMAGE_REPO_NAME:$IMAGE_TAG $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$IMAGE_TAG\n  post_build:\n    commands:\n      - echo Build completed on `date`\n      - echo Pushing the Docker image...\n      - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$IMAGE_TAG"
+        "buildspec": "version: 0.2\n\nphases:\n  pre_build:\n    commands:\n      - echo Logging in to Amazon ECR...\n      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com\n      - echo Logging in to avoid Docker rate limits...\n      - |\n        if [ ! -z \"$DOCKERHUB_USERNAME\" ] && [ ! -z \"$DOCKERHUB_TOKEN\" ]; then\n          echo \"Authenticating with Docker Hub...\"\n          echo $DOCKERHUB_TOKEN | docker login --username $DOCKERHUB_USERNAME --password-stdin\n        else\n          echo \"Using AWS Public ECR for NVIDIA images...\"\n          aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws\n        fi\n  build:\n    commands:\n      - echo Build started on `date`\n      - echo Building the Docker image...\n      - |\n        if [ ! -z \"$DOCKERHUB_USERNAME\" ] && [ ! -z \"$DOCKERHUB_TOKEN\" ]; then\n          docker build -t $IMAGE_REPO_NAME:$IMAGE_TAG .\n        else\n          sed 's|nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu20.04|public.ecr.aws/nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu20.04|g' Dockerfile > Dockerfile.tmp\n          docker build -f Dockerfile.tmp -t $IMAGE_REPO_NAME:$IMAGE_TAG .\n          rm -f Dockerfile.tmp\n        fi\n      - docker tag $IMAGE_REPO_NAME:$IMAGE_TAG $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$IMAGE_TAG\n  post_build:\n    commands:\n      - echo Build completed on `date`\n      - echo Pushing the Docker image...\n      - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$IMAGE_TAG"
     }' \
     --artifacts type=NO_ARTIFACTS \
     --environment type=LINUX_CONTAINER,image=aws/codebuild/amazonlinux2-x86_64-standard:3.0,computeType=BUILD_GENERAL1_LARGE,privilegedMode=true \
@@ -133,7 +152,7 @@ aws codebuild update-project \
     --name $PROJECT_NAME \
     --source '{
         "type": "NO_SOURCE",
-        "buildspec": "version: 0.2\n\nphases:\n  pre_build:\n    commands:\n      - echo Logging in to Amazon ECR...\n      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com\n  build:\n    commands:\n      - echo Build started on `date`\n      - echo Building the Docker image...\n      - docker build -t $IMAGE_REPO_NAME:$IMAGE_TAG .\n      - docker tag $IMAGE_REPO_NAME:$IMAGE_TAG $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$IMAGE_TAG\n  post_build:\n    commands:\n      - echo Build completed on `date`\n      - echo Pushing the Docker image...\n      - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$IMAGE_TAG"
+        "buildspec": "version: 0.2\n\nphases:\n  pre_build:\n    commands:\n      - echo Logging in to Amazon ECR...\n      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com\n      - echo Logging in to avoid Docker rate limits...\n      - |\n        if [ ! -z \"$DOCKERHUB_USERNAME\" ] && [ ! -z \"$DOCKERHUB_TOKEN\" ]; then\n          echo \"Authenticating with Docker Hub...\"\n          echo $DOCKERHUB_TOKEN | docker login --username $DOCKERHUB_USERNAME --password-stdin\n        else\n          echo \"Using AWS Public ECR for NVIDIA images...\"\n          aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws\n        fi\n  build:\n    commands:\n      - echo Build started on `date`\n      - echo Building the Docker image...\n      - |\n        if [ ! -z \"$DOCKERHUB_USERNAME\" ] && [ ! -z \"$DOCKERHUB_TOKEN\" ]; then\n          docker build -t $IMAGE_REPO_NAME:$IMAGE_TAG .\n        else\n          sed 's|nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu20.04|public.ecr.aws/nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu20.04|g' Dockerfile > Dockerfile.tmp\n          docker build -f Dockerfile.tmp -t $IMAGE_REPO_NAME:$IMAGE_TAG .\n          rm -f Dockerfile.tmp\n        fi\n      - docker tag $IMAGE_REPO_NAME:$IMAGE_TAG $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$IMAGE_TAG\n  post_build:\n    commands:\n      - echo Build completed on `date`\n      - echo Pushing the Docker image...\n      - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$IMAGE_TAG"
     }' \
     --artifacts type=NO_ARTIFACTS \
     --environment type=LINUX_CONTAINER,image=aws/codebuild/amazonlinux2-x86_64-standard:3.0,computeType=BUILD_GENERAL1_LARGE,privilegedMode=true \
