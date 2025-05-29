@@ -83,7 +83,7 @@ aws iam attach-role-policy \
 # Create the CodeBuild project
 aws codebuild create-project \
     --name $PROJECT_NAME \
-    --source type=LOCAL,location=. \
+    --source type=NO_SOURCE,buildspec=buildspec.yml \
     --artifacts type=NO_ARTIFACTS \
     --environment type=LINUX_CONTAINER,image=aws/codebuild/amazonlinux2-x86_64-standard:3.0,computeType=BUILD_GENERAL1_LARGE,privilegedMode=true \
     --service-role arn:aws:iam::$AWS_ACCOUNT_ID:role/$ROLE_NAME || echo "Project already exists, updating..."
@@ -91,17 +91,31 @@ aws codebuild create-project \
 # If project exists, update it
 aws codebuild update-project \
     --name $PROJECT_NAME \
-    --source type=LOCAL,location=. \
+    --source type=NO_SOURCE,buildspec=buildspec.yml \
     --artifacts type=NO_ARTIFACTS \
     --environment type=LINUX_CONTAINER,image=aws/codebuild/amazonlinux2-x86_64-standard:3.0,computeType=BUILD_GENERAL1_LARGE,privilegedMode=true \
     --service-role arn:aws:iam::$AWS_ACCOUNT_ID:role/$ROLE_NAME || true
 
-# Start the build
+# Create a zip file of the current directory for upload
+echo "Creating source archive..."
+zip -r source.zip . -x "*.git*" "*.zip"
+
+# Upload to S3 bucket (create bucket if needed)
+BUCKET_NAME="codebuild-source-$AWS_ACCOUNT_ID-$AWS_REGION"
+aws s3 mb s3://$BUCKET_NAME --region $AWS_REGION || echo "Bucket already exists"
+aws s3 cp source.zip s3://$BUCKET_NAME/aita-vm-source.zip
+
+# Start the build with source override
 echo "Starting CodeBuild..."
 BUILD_ID=$(aws codebuild start-build \
     --project-name $PROJECT_NAME \
+    --source-type-override S3 \
+    --source-location-override $BUCKET_NAME/aita-vm-source.zip \
     --environment-variables-override name=AWS_DEFAULT_REGION,value=$AWS_REGION name=AWS_ACCOUNT_ID,value=$AWS_ACCOUNT_ID name=IMAGE_REPO_NAME,value=$REPO_NAME name=IMAGE_TAG,value=$IMAGE_TAG \
     --query 'build.id' --output text)
+
+# Clean up local zip file
+rm -f source.zip
 
 echo "Build started with ID: $BUILD_ID"
 echo "You can monitor the build at: https://console.aws.amazon.com/codesuite/codebuild/projects/$PROJECT_NAME/build/$BUILD_ID"
