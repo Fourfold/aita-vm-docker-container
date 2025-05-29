@@ -80,6 +80,43 @@ aws iam attach-role-policy \
     --role-name $ROLE_NAME \
     --policy-arn arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryPowerUser || true
 
+# Create and attach S3 policy for the source bucket
+S3_POLICY_NAME="CodeBuildS3Access-$PROJECT_NAME"
+cat > s3-policy.json << EOF
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "s3:GetObject",
+                "s3:GetObjectVersion"
+            ],
+            "Resource": "arn:aws:s3:::codebuild-source-$AWS_ACCOUNT_ID-$AWS_REGION/*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "s3:ListBucket"
+            ],
+            "Resource": "arn:aws:s3:::codebuild-source-$AWS_ACCOUNT_ID-$AWS_REGION"
+        }
+    ]
+}
+EOF
+
+# Create the policy and attach it to the role
+aws iam create-policy \
+    --policy-name $S3_POLICY_NAME \
+    --policy-document file://s3-policy.json || echo "Policy already exists"
+
+aws iam attach-role-policy \
+    --role-name $ROLE_NAME \
+    --policy-arn arn:aws:iam::$AWS_ACCOUNT_ID:policy/$S3_POLICY_NAME || true
+
+# Clean up policy file
+rm -f s3-policy.json
+
 # Create the CodeBuild project
 aws codebuild create-project \
     --name $PROJECT_NAME \
