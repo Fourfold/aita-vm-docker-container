@@ -52,11 +52,54 @@ phases:
       - |
         if [ ! -z "\$DOCKERHUB_USERNAME" ] && [ ! -z "\$DOCKERHUB_TOKEN" ]; then
           echo "Using Docker Hub NVIDIA image..."
-          docker build -t \$IMAGE_REPO_NAME:\$IMAGE_TAG .
+          # Create a temporary Dockerfile with better apt handling
+          cat > Dockerfile.tmp << 'DOCKERFILE_EOF'
+FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu20.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Fix apt repositories and update
+RUN apt-get clean && \
+    rm -rf /var/lib/apt/lists/* && \
+    apt-get update --fix-missing && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends --fix-missing \
+        python3.9 \
+        python3-pip \
+        python3-distutils \
+        curl \
+        wget \
+    && apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+DOCKERFILE_EOF
+          # Copy the rest of the original Dockerfile content (excluding the FROM and initial RUN)
+          tail -n +\$(grep -n "RUN apt-get update" Dockerfile | head -1 | cut -d: -f1 | xargs expr 1 +) Dockerfile >> Dockerfile.tmp || tail -n +\$(grep -n "COPY\|ADD\|WORKDIR\|ENV\|EXPOSE\|CMD\|ENTRYPOINT" Dockerfile | head -1 | cut -d: -f1) Dockerfile >> Dockerfile.tmp
+          docker build -f Dockerfile.tmp -t \$IMAGE_REPO_NAME:\$IMAGE_TAG .
+          rm -f Dockerfile.tmp
         else
           echo "Using AWS Public ECR NVIDIA image as fallback..."
-          # Create a temporary Dockerfile that uses public ECR NVIDIA image
-          sed 's|nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu20.04|public.ecr.aws/nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu20.04|g' Dockerfile > Dockerfile.tmp
+          # Create a temporary Dockerfile that uses public ECR NVIDIA image with better apt handling
+          cat > Dockerfile.tmp << 'DOCKERFILE_EOF'
+FROM public.ecr.aws/nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu20.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Fix apt repositories and update
+RUN apt-get clean && \
+    rm -rf /var/lib/apt/lists/* && \
+    apt-get update --fix-missing && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends --fix-missing \
+        python3.9 \
+        python3-pip \
+        python3-distutils \
+        curl \
+        wget \
+    && apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+DOCKERFILE_EOF
+          # Copy the rest of the original Dockerfile content
+          tail -n +\$(grep -n "RUN apt-get update" Dockerfile | head -1 | cut -d: -f1 | xargs expr 1 +) Dockerfile >> Dockerfile.tmp || tail -n +\$(grep -n "COPY\|ADD\|WORKDIR\|ENV\|EXPOSE\|CMD\|ENTRYPOINT" Dockerfile | head -1 | cut -d: -f1) Dockerfile >> Dockerfile.tmp
           docker build -f Dockerfile.tmp -t \$IMAGE_REPO_NAME:\$IMAGE_TAG .
           rm -f Dockerfile.tmp
         fi
