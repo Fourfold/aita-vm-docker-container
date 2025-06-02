@@ -7,6 +7,10 @@ if ! command -v aws &> /dev/null; then
     exit 1
 fi
 
+# # Set Docker Hub credentials
+# export DOCKERHUB_USERNAME="your-username"
+# export DOCKERHUB_TOKEN="your-access-token"
+
 # Get AWS account ID and region
 export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 export AWS_REGION=${AWS_REGION:-us-east-1}
@@ -52,84 +56,25 @@ phases:
       - |
         if [ ! -z "\$DOCKERHUB_USERNAME" ] && [ ! -z "\$DOCKERHUB_TOKEN" ]; then
           BASE_IMAGE="nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu20.04"
+          echo "Using Docker Hub NVIDIA image..."
+          # Use original Dockerfile with Docker Hub base image
+          docker build -t \$IMAGE_REPO_NAME:\$IMAGE_TAG .
         else
           BASE_IMAGE="public.ecr.aws/nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu20.04"
+          echo "Using AWS Public ECR NVIDIA image..."
+          # Modify only the base image in the original Dockerfile
+          sed "s|nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu20.04|public.ecr.aws/nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu20.04|g" Dockerfile > Dockerfile.aws
+          
+          # Add better apt handling at the beginning
+          sed -i '/^FROM /a\\nENV DEBIAN_FRONTEND=noninteractive\n\n# Configure apt sources for better reliability\nRUN echo "deb http://us.archive.ubuntu.com/ubuntu/ focal main restricted universe multiverse" > /etc/apt/sources.list && \\\n    echo "deb http://us.archive.ubuntu.com/ubuntu/ focal-updates main restricted universe multiverse" >> /etc/apt/sources.list && \\\n    echo "deb http://us.archive.ubuntu.com/ubuntu/ focal-backports main restricted universe multiverse" >> /etc/apt/sources.list && \\\n    echo "deb http://security.ubuntu.com/ubuntu focal-security main restricted universe multiverse" >> /etc/apt/sources.list' Dockerfile.aws
+          
+          # Improve apt-get commands with retry logic
+          sed -i 's/RUN apt-get update && apt-get install -y --no-install-recommends/RUN for i in 1 2 3; do apt-get update --fix-missing \&\& apt-get install -y --no-install-recommends --fix-missing/g' Dockerfile.aws
+          sed -i 's/&& rm -rf \/var\/lib\/apt\/lists\/\*/\&\& break || sleep 10; done \&\& apt-get clean \&\& rm -rf \/var\/lib\/apt\/lists\/*/g' Dockerfile.aws
+          
+          docker build -f Dockerfile.aws -t \$IMAGE_REPO_NAME:\$IMAGE_TAG .
+          rm -f Dockerfile.aws
         fi
-        
-        # Create a robust Dockerfile that handles repository issues
-        cat > Dockerfile.robust << 'DOCKERFILE_EOF'
-FROM \${BASE_IMAGE}
-
-# Set environment variables
-ENV PYTHONUNBUFFERED=1
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Configure apt to use alternative mirrors and handle failures gracefully
-RUN echo "deb http://us.archive.ubuntu.com/ubuntu/ focal main restricted universe multiverse" > /etc/apt/sources.list && \
-    echo "deb http://us.archive.ubuntu.com/ubuntu/ focal-updates main restricted universe multiverse" >> /etc/apt/sources.list && \
-    echo "deb http://us.archive.ubuntu.com/ubuntu/ focal-backports main restricted universe multiverse" >> /etc/apt/sources.list && \
-    echo "deb http://security.ubuntu.com/ubuntu focal-security main restricted universe multiverse" >> /etc/apt/sources.list
-
-# Install Python and essential packages with retry logic
-RUN apt-get clean && \
-    rm -rf /var/lib/apt/lists/* && \
-    for i in 1 2 3; do \
-        apt-get update --fix-missing && \
-        apt-get install -y --no-install-recommends \
-            python3.9 \
-            python3-pip \
-            python3-distutils \
-            python3-setuptools \
-            python3-wheel \
-            poppler-utils \
-            swig \
-            build-essential \
-            python3.9-dev \
-            curl \
-            wget \
-            ca-certificates \
-        && break || sleep 10; \
-    done && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-
-# Set Python 3.9 as default
-RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.9 1
-
-# Create work directory
-WORKDIR /app
-
-# Copy LoRA adapters first (can be cached if they don't change often)
-COPY ./gemmax2_9b_finetuned /app/gemmax2_9b_finetuned
-
-# Copy requirements and install dependencies
-COPY requirements.txt .
-RUN pip3 install --no-cache-dir -r requirements.txt
-
-# Install PaddlePaddle
-RUN pip3 install paddlepaddle-gpu==3.0.0rc0 -i https://www.paddlepaddle.org.cn/packages/stable/cu123/
-
-# Install additional packages
-RUN pip3 install paddlex==3.0rc0 faiss-cpu==1.8.0 simsimd==1.1.2 --use-pep517
-
-# Copy the rest of the files
-COPY . .
-
-# Expose the port FastAPI/Uvicorn will run on
-EXPOSE 8000
-
-# Default command to run your app with better logging
-CMD ["python", "start_server.py"]
-DOCKERFILE_EOF
-        
-        # Replace BASE_IMAGE placeholder with actual value
-        sed "s|\\\${BASE_IMAGE}|\$BASE_IMAGE|g" Dockerfile.robust > Dockerfile.final
-        
-        # Build with the robust Dockerfile
-        docker build -f Dockerfile.final -t \$IMAGE_REPO_NAME:\$IMAGE_TAG .
-        
-        # Clean up temporary files
-        rm -f Dockerfile.robust Dockerfile.final
       - docker tag \$IMAGE_REPO_NAME:\$IMAGE_TAG \$AWS_ACCOUNT_ID.dkr.ecr.\$AWS_DEFAULT_REGION.amazonaws.com/\$IMAGE_REPO_NAME:\$IMAGE_TAG
   post_build:
     commands:
