@@ -3,9 +3,11 @@ import time
 import tiktoken
 from collections import deque
 import threading
+import ast
 import boto3
 from botocore.exceptions import ClientError
 from fastapi import FastAPI, HTTPException, Response
+from contextlib import asynccontextmanager
 
 # Default estimate for completion tokens, can be tuned by the user if needed
 EXPECTED_COMPLETION_TOKENS_ESTIMATE = 4000  # Assuming an average, can be adjusted
@@ -13,13 +15,24 @@ parallelWorkers = 5
 model = "gpt-3.5-turbo"
 tpm_limit = 450000
 client = None
-app = FastAPI()
-token_limiter = None
 
-# Use this code snippet in your app.
-# If you need more information about configurations
-# or implementing the sample code, visit the AWS docs:
-# https://aws.amazon.com/developer/language/python/
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup code
+    print("App is starting up...")
+    global client
+    client = OpenAI(
+        api_key=get_secret()
+    )
+    global token_limiter
+    # Instantiate the limiter globally with the user-specified TPM limit
+    token_limiter = TokenRateLimiter(tpm_limit=tpm_limit, model_name=model)
+    yield
+    # Shutdown code
+    print("App is shutting down...")
+
+app = FastAPI(lifespan=lifespan)
+token_limiter = None
 
 
 def get_secret():
@@ -43,7 +56,7 @@ def get_secret():
         raise e
 
     secret = get_secret_value_response['SecretString']
-    return secret
+    return ast.literal_eval(secret)['aita-pipeline-ec2-1']
 
 
 class TokenRateLimiter:
@@ -145,16 +158,6 @@ def chat_gpt(prompt, token_limiter):
     # time.sleep(2)  # Removed: Replaced by the TokenRateLimiter logic
     return response_message.strip()
 
-@app.on_event("startup")
-async def startup():
-    global client
-    client = OpenAI(
-        api_key=get_secret()
-    )
-    global token_limiter
-    # Instantiate the limiter globally with the user-specified TPM limit
-    token_limiter = TokenRateLimiter(tpm_limit=tpm_limit, model_name=model)
-    print("Startup complete")
 
 # --- API Endpoints ---
 # GET request allowed for health check, works in browser

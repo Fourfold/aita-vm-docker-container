@@ -5,10 +5,6 @@ from pipeline_public import PipelinePublic
 from paddle_classifier import LayoutClassifier
 from pipeline_utilities import init_firebase
 
-app = FastAPI()
-pipeline_pro = None
-pipeline_public = None
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup code
@@ -23,6 +19,9 @@ async def lifespan(app: FastAPI):
     # Shutdown code
     print("App is shutting down...")
 
+app = FastAPI(lifespan=lifespan)
+pipeline_pro = None
+pipeline_public = None
 
 # --- API Endpoints ---
 # GET request allowed for health check, works in browser
