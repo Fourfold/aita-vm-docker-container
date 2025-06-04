@@ -1,4 +1,5 @@
 openai
+boto3
 fastapi
 uvicorn
 tiktoken

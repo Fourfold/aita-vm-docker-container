@@ -26,6 +26,9 @@ import pandas as pd
 import tiktoken
 from collections import deque
 import threading
+import ast
+import boto3
+from botocore.exceptions import ClientError
 
 from pipeline_utilities import *
 from slide_flipping import process_pptx_flip
@@ -35,10 +38,6 @@ from paddle_classifier import PaddleClassifier
 parallelWorkers = 5
 model = "gpt-4o"
 
-client = OpenAI(
-    api_key='sk-proj-zo8UYHSjQsRDj27x0UgPT3BlbkFJRhKTphRtEu8ITjFjfRBS'
-)
-
 
 class PipelinePublic:
     _instance = None
@@ -47,9 +46,37 @@ class PipelinePublic:
         if cls._instance is None:
             cls._instance = super(PipelinePublic, cls).__new__(cls)
             cls._instance.model = model
+            cls._instance.client = OpenAI(
+                api_key=cls.get_secret()
+            )
             cls._instance.parallelWorkers = parallelWorkers
             cls._instance.token_limiter = PipelinePublic.TokenRateLimiter(tpm_limit=30000, model_name="gpt-4o")
         return cls._instance
+
+
+    def get_secret():
+        secret_name = "openAi/apiKeys"
+        region_name = "us-east-1"
+
+        # Create a Secrets Manager client
+        session = boto3.session.Session()
+        client = session.client(
+            service_name='secretsmanager',
+            region_name=region_name
+        )
+
+        try:
+            get_secret_value_response = client.get_secret_value(
+                SecretId=secret_name
+            )
+        except ClientError as e:
+            # For a list of exceptions thrown, see
+            # https://docs.aws.amazon.com/secretsmanager/latest/apireference/API_GetSecretValue.html
+            raise e
+
+        secret = get_secret_value_response['SecretString']
+        return ast.literal_eval(secret)['aita-pipeline-ec2-1']
+
 
     class TokenRateLimiter:
         EXPECTED_COMPLETION_TOKENS_ESTIMATE = 600
@@ -146,7 +173,7 @@ class PipelinePublic:
         # Wait if necessary based on current token usage and estimated tokens for this call
         self.token_limiter.wait_if_needed(prompt_tokens)
 
-        response = client.chat.completions.create(
+        response = self.client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}]
         )

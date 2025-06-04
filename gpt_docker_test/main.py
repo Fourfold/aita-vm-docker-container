@@ -3,18 +3,48 @@ import time
 import tiktoken
 from collections import deque
 import threading
+import boto3
+from botocore.exceptions import ClientError
 from fastapi import FastAPI, HTTPException, Response
 
 # Default estimate for completion tokens, can be tuned by the user if needed
-EXPECTED_COMPLETION_TOKENS_ESTIMATE = 600  # Assuming an average, can be adjusted
+EXPECTED_COMPLETION_TOKENS_ESTIMATE = 4000  # Assuming an average, can be adjusted
 parallelWorkers = 5
 model = "gpt-3.5-turbo"
-tpm_limit = 30000
-client = OpenAI(
-        api_key='sk-proj-zo8UYHSjQsRDj27x0UgPT3BlbkFJRhKTphRtEu8ITjFjfRBS'
-    )
+tpm_limit = 450000
+client = None
 app = FastAPI()
 token_limiter = None
+
+# Use this code snippet in your app.
+# If you need more information about configurations
+# or implementing the sample code, visit the AWS docs:
+# https://aws.amazon.com/developer/language/python/
+
+
+def get_secret():
+    secret_name = "openAi/apiKeys"
+    region_name = "us-east-1"
+
+    # Create a Secrets Manager client
+    session = boto3.session.Session()
+    client = session.client(
+        service_name='secretsmanager',
+        region_name=region_name
+    )
+
+    try:
+        get_secret_value_response = client.get_secret_value(
+            SecretId=secret_name
+        )
+    except ClientError as e:
+        # For a list of exceptions thrown, see
+        # https://docs.aws.amazon.com/secretsmanager/latest/apireference/API_GetSecretValue.html
+        raise e
+
+    secret = get_secret_value_response['SecretString']
+    return secret
+
 
 class TokenRateLimiter:
     def __init__(self, tpm_limit=30000, model_name="gpt-4o"):
@@ -117,6 +147,10 @@ def chat_gpt(prompt, token_limiter):
 
 @app.on_event("startup")
 async def startup():
+    global client
+    client = OpenAI(
+        api_key=get_secret()
+    )
     global token_limiter
     # Instantiate the limiter globally with the user-specified TPM limit
     token_limiter = TokenRateLimiter(tpm_limit=tpm_limit, model_name=model)
