@@ -19,18 +19,26 @@ export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output tex
 export AWS_REGION=${AWS_REGION:-us-east-1}
 echo "Using AWS account: $AWS_ACCOUNT_ID in region: $AWS_REGION"
 
-# Repository name
+# Repository names
 REPO_NAME="aita-vm-image"
+BASE_IMAGE_REPO="nvidia-cuda-base"
 IMAGE_NAME="pptx_translation_pipelines"
 IMAGE_TAG="v1"
+BASE_IMAGE_TAG="11.8.0-cudnn8-runtime-ubuntu20.04"
 ECR_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$REPO_NAME:$IMAGE_TAG"
+BASE_ECR_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$BASE_IMAGE_REPO:$BASE_IMAGE_TAG"
 
-# Create ECR repository if it doesn't exist
-echo "Creating ECR repository..."
+# Create ECR repositories if they don't exist
+echo "Creating ECR repositories..."
 aws ecr create-repository \
     --repository-name $REPO_NAME \
     --region $AWS_REGION \
-    --image-scanning-configuration scanOnPush=true || echo "Repository already exists"
+    --image-scanning-configuration scanOnPush=true || echo "Main repository already exists"
+
+aws ecr create-repository \
+    --repository-name $BASE_IMAGE_REPO \
+    --region $AWS_REGION \
+    --image-scanning-configuration scanOnPush=true || echo "Base image repository already exists"
 
 # Create buildspec.yml for CodeBuild if it doesn't exist
 if [ ! -f "buildspec.yml" ]; then
@@ -43,13 +51,24 @@ phases:
     commands:
       - echo Logging in to Amazon ECR...
       - aws ecr get-login-password --region \$AWS_DEFAULT_REGION | docker login --username AWS --password-stdin \$AWS_ACCOUNT_ID.dkr.ecr.\$AWS_DEFAULT_REGION.amazonaws.com
-      - echo Logging in to AWS Public ECR for PyTorch Deep Learning Container...
+      - echo Checking if base image needs to be pulled from Docker Hub...
       - aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
+      - echo Checking if base image exists in private ECR...
+      - |
+        if ! aws ecr describe-images --repository-name \$BASE_IMAGE_REPO --image-ids imageTag=\$BASE_IMAGE_TAG --region \$AWS_DEFAULT_REGION >/dev/null 2>&1; then
+          echo "Base image not found in private ECR, pulling and pushing..."
+          docker pull nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu20.04
+          docker tag nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu20.04 \$AWS_ACCOUNT_ID.dkr.ecr.\$AWS_DEFAULT_REGION.amazonaws.com/\$BASE_IMAGE_REPO:\$BASE_IMAGE_TAG
+          docker push \$AWS_ACCOUNT_ID.dkr.ecr.\$AWS_DEFAULT_REGION.amazonaws.com/\$BASE_IMAGE_REPO:\$BASE_IMAGE_TAG
+          echo "Base image pushed to private ECR"
+        else
+          echo "Base image already exists in private ECR"
+        fi
   build:
     commands:
       - echo Build started on \`date\`
-      - echo Building the Docker image using Docker Hub NVIDIA base image...
-      - docker build -t \$IMAGE_REPO_NAME:\$IMAGE_TAG .
+      - echo Building the Docker image using private ECR NVIDIA CUDA base image...
+      - docker build --build-arg AWS_ACCOUNT_ID=\$AWS_ACCOUNT_ID --build-arg AWS_REGION=\$AWS_DEFAULT_REGION -t \$IMAGE_REPO_NAME:\$IMAGE_TAG .
       - docker tag \$IMAGE_REPO_NAME:\$IMAGE_TAG \$AWS_ACCOUNT_ID.dkr.ecr.\$AWS_DEFAULT_REGION.amazonaws.com/\$IMAGE_REPO_NAME:\$IMAGE_TAG
   post_build:
     commands:
@@ -189,7 +208,7 @@ fi
 echo "Starting CodeBuild..."
 BUILD_ID=$(aws codebuild start-build \
     --project-name $PROJECT_NAME \
-    --environment-variables-override name=AWS_DEFAULT_REGION,value=$AWS_REGION name=AWS_ACCOUNT_ID,value=$AWS_ACCOUNT_ID name=IMAGE_REPO_NAME,value=$REPO_NAME name=IMAGE_TAG,value=$IMAGE_TAG \
+    --environment-variables-override name=AWS_DEFAULT_REGION,value=$AWS_REGION name=AWS_ACCOUNT_ID,value=$AWS_ACCOUNT_ID name=IMAGE_REPO_NAME,value=$REPO_NAME name=IMAGE_TAG,value=$IMAGE_TAG name=BASE_IMAGE_REPO,value=$BASE_IMAGE_REPO name=BASE_IMAGE_TAG,value=$BASE_IMAGE_TAG \
     --query 'build.id' --output text)
 
 # Clean up local files

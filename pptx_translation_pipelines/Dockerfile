@@ -1,5 +1,8 @@
-# Use a base image with CUDA support
-FROM public.ecr.aws/bitnami/pytorch:latest
+# Use NVIDIA CUDA base image from our private ECR (automatically managed by build script)
+# The build script will pull from Docker Hub and push to private ECR if needed
+ARG AWS_ACCOUNT_ID
+ARG AWS_REGION=us-east-1
+FROM ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/nvidia-cuda-base:11.8.0-cudnn8-runtime-ubuntu20.04
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
