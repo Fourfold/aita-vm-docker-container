@@ -7,9 +7,9 @@ if ! command -v aws &> /dev/null; then
     exit 1
 fi
 
-# # Set Docker Hub credentials
-# export DOCKERHUB_USERNAME="your-username"
-# export DOCKERHUB_TOKEN="your-access-token"
+# Set Docker Hub credentials - REPLACE THESE WITH YOUR ACTUAL CREDENTIALS
+export DOCKERHUB_USERNAME="your-dockerhub-username"
+export DOCKERHUB_TOKEN="your-dockerhub-access-token"
 
 # Get AWS account ID and region
 export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
@@ -40,57 +40,13 @@ phases:
     commands:
       - echo Logging in to Amazon ECR...
       - aws ecr get-login-password --region \$AWS_DEFAULT_REGION | docker login --username AWS --password-stdin \$AWS_ACCOUNT_ID.dkr.ecr.\$AWS_DEFAULT_REGION.amazonaws.com
-      - echo Logging in to Docker Hub to avoid rate limits...
-      - |
-        if [ ! -z "\$DOCKERHUB_USERNAME" ] && [ ! -z "\$DOCKERHUB_TOKEN" ]; then
-          echo "Authenticating with Docker Hub..."
-          echo \$DOCKERHUB_TOKEN | docker login --username \$DOCKERHUB_USERNAME --password-stdin
-        else
-          echo "Docker Hub credentials not provided. Using public ECR for NVIDIA images..."
-          aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
-        fi
+      - echo Logging in to Docker Hub...
+      - echo \$DOCKERHUB_TOKEN | docker login --username \$DOCKERHUB_USERNAME --password-stdin
   build:
     commands:
       - echo Build started on \`date\`
-      - echo Building the Docker image...
-      - |
-        if [ ! -z "\$DOCKERHUB_USERNAME" ] && [ ! -z "\$DOCKERHUB_TOKEN" ]; then
-          BASE_IMAGE="nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu20.04"
-          echo "Using Docker Hub NVIDIA image..."
-          # Use original Dockerfile with Docker Hub base image
-          docker build -t \$IMAGE_REPO_NAME:\$IMAGE_TAG .
-        else
-          BASE_IMAGE="public.ecr.aws/nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu20.04"
-          echo "Using AWS Public ECR NVIDIA image..."
-          # Create a modified Dockerfile with AWS ECR base image and improved apt handling
-          # First, replace the base image
-          sed "s|nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu20.04|public.ecr.aws/nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu20.04|g" Dockerfile > Dockerfile.tmp
-          
-          # Create the final Dockerfile with better apt configuration
-          {
-            # Add the FROM line
-            head -n 1 Dockerfile.tmp
-            
-            # Add environment and apt configuration
-            echo "ENV DEBIAN_FRONTEND=noninteractive"
-            echo ""
-            echo "# Configure apt sources for better reliability"
-            echo "RUN echo \"deb http://us.archive.ubuntu.com/ubuntu/ focal main restricted universe multiverse\" > /etc/apt/sources.list && \\"
-            echo "    echo \"deb http://us.archive.ubuntu.com/ubuntu/ focal-updates main restricted universe multiverse\" >> /etc/apt/sources.list && \\"
-            echo "    echo \"deb http://us.archive.ubuntu.com/ubuntu/ focal-backports main restricted universe multiverse\" >> /etc/apt/sources.list && \\"
-            echo "    echo \"deb http://security.ubuntu.com/ubuntu focal-security main restricted universe multiverse\" >> /etc/apt/sources.list"
-            echo ""
-            
-            # Add the rest of the Dockerfile, skipping the FROM line and improving apt commands
-            tail -n +2 Dockerfile.tmp | sed 's/RUN apt-get update && apt-get install -y --no-install-recommends/RUN for i in 1 2 3; do apt-get update --fix-missing \&\& apt-get install -y --no-install-recommends --fix-missing/g' | sed 's/&& rm -rf \/var\/lib\/apt\/lists\/\*/\&\& break || sleep 10; done \&\& apt-get clean \&\& rm -rf \/var\/lib\/apt\/lists\/*/g'
-            
-          } > Dockerfile.aws
-          
-          rm -f Dockerfile.tmp
-          
-          docker build -f Dockerfile.aws -t \$IMAGE_REPO_NAME:\$IMAGE_TAG .
-          rm -f Dockerfile.aws
-        fi
+      - echo Building the Docker image using Docker Hub NVIDIA base image...
+      - docker build -t \$IMAGE_REPO_NAME:\$IMAGE_TAG .
       - docker tag \$IMAGE_REPO_NAME:\$IMAGE_TAG \$AWS_ACCOUNT_ID.dkr.ecr.\$AWS_DEFAULT_REGION.amazonaws.com/\$IMAGE_REPO_NAME:\$IMAGE_TAG
   post_build:
     commands:
