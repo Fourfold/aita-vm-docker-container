@@ -170,9 +170,8 @@ cat > source-config.json << EOF
 EOF
 
 # Check if project exists first
-PROJECT_EXISTS=$(aws codebuild describe-projects --names $PROJECT_NAME --query 'projects[0].name' --output text 2>/dev/null)
-
-if [ "$PROJECT_EXISTS" = "$PROJECT_NAME" ]; then
+echo "Checking if project $PROJECT_NAME exists..."
+if aws codebuild describe-projects --names $PROJECT_NAME >/dev/null 2>&1; then
     echo "Project exists, updating..."
     if ! aws codebuild update-project \
         --name $PROJECT_NAME \
