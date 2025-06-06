@@ -9,9 +9,10 @@ if ! command -v aws &> /dev/null; then
     exit 1
 fi
 
-# Set Docker Hub credentials - REPLACE THESE WITH YOUR ACTUAL CREDENTIALS
-export DOCKERHUB_USERNAME="your-dockerhub-username"
-export DOCKERHUB_TOKEN="your-dockerhub-access-token"
+# Using Docker Hub without authentication (subject to rate limits)
+# If you need authenticated access, you can add credentials here:
+# export DOCKERHUB_USERNAME="your-dockerhub-username" 
+# export DOCKERHUB_TOKEN="your-dockerhub-access-token"
 
 # Get AWS account ID and region
 export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
@@ -42,10 +43,7 @@ phases:
     commands:
       - echo Logging in to Amazon ECR...
       - aws ecr get-login-password --region \$AWS_DEFAULT_REGION | docker login --username AWS --password-stdin \$AWS_ACCOUNT_ID.dkr.ecr.\$AWS_DEFAULT_REGION.amazonaws.com
-      - echo Logging in to Docker Hub...
-      - echo "\$DOCKERHUB_TOKEN" > /tmp/docker_token
-      - cat /tmp/docker_token | docker login --username \$DOCKERHUB_USERNAME --password-stdin
-      - rm /tmp/docker_token
+      - echo Using Docker Hub without authentication - subject to rate limits
   build:
     commands:
       - echo Build started on \`date\`
