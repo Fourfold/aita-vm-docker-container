@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+rm -rf buildspec.yml
+
 # Check if AWS CLI is installed
 if ! command -v aws &> /dev/null; then
     echo "AWS CLI not found. Please install it first."
@@ -41,7 +43,9 @@ phases:
       - echo Logging in to Amazon ECR...
       - aws ecr get-login-password --region \$AWS_DEFAULT_REGION | docker login --username AWS --password-stdin \$AWS_ACCOUNT_ID.dkr.ecr.\$AWS_DEFAULT_REGION.amazonaws.com
       - echo Logging in to Docker Hub...
-      - docker login --username \$DOCKERHUB_USERNAME --password \$DOCKERHUB_TOKEN
+      - echo "\$DOCKERHUB_TOKEN" > /tmp/docker_token
+      - cat /tmp/docker_token | docker login --username \$DOCKERHUB_USERNAME --password-stdin
+      - rm /tmp/docker_token
   build:
     commands:
       - echo Build started on \`date\`
