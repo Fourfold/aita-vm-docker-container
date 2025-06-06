@@ -151,10 +151,20 @@ aws iam attach-role-policy \
 # Clean up policy file
 rm -f s3-policy.json
 
-# Create source configuration JSON file
+# Create a zip file of the current directory for upload
+echo "Creating source archive..."
+zip -r source.zip . -x "*.git*" "*.zip"
+
+# Upload to S3 bucket (create bucket if needed)
+BUCKET_NAME="codebuild-source-$AWS_ACCOUNT_ID-$AWS_REGION"
+aws s3 mb s3://$BUCKET_NAME --region $AWS_REGION || echo "Bucket already exists"
+aws s3 cp source.zip s3://$BUCKET_NAME/aita-vm-source.zip
+
+# Create source configuration JSON file for S3 source
 cat > source-config.json << EOF
 {
-    "type": "NO_SOURCE",
+    "type": "S3",
+    "location": "$BUCKET_NAME/aita-vm-source.zip",
     "buildspec": "buildspec.yml"
 }
 EOF
@@ -184,21 +194,10 @@ if ! aws codebuild describe-projects --names $PROJECT_NAME >/dev/null 2>&1; then
     exit 1
 fi
 
-# Create a zip file of the current directory for upload
-echo "Creating source archive..."
-zip -r source.zip . -x "*.git*" "*.zip"
-
-# Upload to S3 bucket (create bucket if needed)
-BUCKET_NAME="codebuild-source-$AWS_ACCOUNT_ID-$AWS_REGION"
-aws s3 mb s3://$BUCKET_NAME --region $AWS_REGION || echo "Bucket already exists"
-aws s3 cp source.zip s3://$BUCKET_NAME/aita-vm-source.zip
-
-# Start the build with source override
+# Start the build
 echo "Starting CodeBuild..."
 BUILD_ID=$(aws codebuild start-build \
     --project-name $PROJECT_NAME \
-    --source-type-override S3 \
-    --source-location-override $BUCKET_NAME/aita-vm-source.zip \
     --environment-variables-override name=AWS_DEFAULT_REGION,value=$AWS_REGION name=AWS_ACCOUNT_ID,value=$AWS_ACCOUNT_ID name=IMAGE_REPO_NAME,value=$REPO_NAME name=IMAGE_TAG,value=$IMAGE_TAG \
     --query 'build.id' --output text)
 
