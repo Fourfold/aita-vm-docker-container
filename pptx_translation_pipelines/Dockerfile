@@ -1,5 +1,5 @@
 # Use a base image with CUDA support
-FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu20.04
+FROM public.ecr.aws/bitnami/pytorch:latest
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1

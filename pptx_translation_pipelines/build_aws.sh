@@ -43,7 +43,8 @@ phases:
     commands:
       - echo Logging in to Amazon ECR...
       - aws ecr get-login-password --region \$AWS_DEFAULT_REGION | docker login --username AWS --password-stdin \$AWS_ACCOUNT_ID.dkr.ecr.\$AWS_DEFAULT_REGION.amazonaws.com
-      - echo Using Docker Hub without authentication - subject to rate limits
+      - echo Logging in to AWS Public ECR for PyTorch Deep Learning Container...
+      - aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
   build:
     commands:
       - echo Build started on \`date\`
