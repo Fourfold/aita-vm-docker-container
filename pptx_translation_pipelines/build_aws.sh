@@ -170,28 +170,45 @@ cat > source-config.json << EOF
 EOF
 
 # Check if project exists first
-if aws codebuild describe-projects --names $PROJECT_NAME >/dev/null 2>&1; then
+PROJECT_EXISTS=$(aws codebuild describe-projects --names $PROJECT_NAME --query 'projects[0].name' --output text 2>/dev/null)
+
+if [ "$PROJECT_EXISTS" = "$PROJECT_NAME" ]; then
     echo "Project exists, updating..."
-    aws codebuild update-project \
+    if ! aws codebuild update-project \
         --name $PROJECT_NAME \
         --source file://source-config.json \
         --artifacts type=NO_ARTIFACTS \
         --environment type=LINUX_CONTAINER,image=aws/codebuild/amazonlinux2-x86_64-standard:3.0,computeType=BUILD_GENERAL1_LARGE,privilegedMode=true \
-        --service-role arn:aws:iam::$AWS_ACCOUNT_ID:role/$ROLE_NAME
+        --service-role arn:aws:iam::$AWS_ACCOUNT_ID:role/$ROLE_NAME; then
+        echo "Error: Failed to update CodeBuild project"
+        exit 1
+    fi
+    echo "Project updated successfully"
 else
     echo "Creating new project..."
-    aws codebuild create-project \
+    if ! aws codebuild create-project \
         --name $PROJECT_NAME \
         --source file://source-config.json \
         --artifacts type=NO_ARTIFACTS \
         --environment type=LINUX_CONTAINER,image=aws/codebuild/amazonlinux2-x86_64-standard:3.0,computeType=BUILD_GENERAL1_LARGE,privilegedMode=true \
-        --service-role arn:aws:iam::$AWS_ACCOUNT_ID:role/$ROLE_NAME
-fi
-
-# Verify project was created/updated successfully
-if ! aws codebuild describe-projects --names $PROJECT_NAME >/dev/null 2>&1; then
-    echo "Error: Failed to create or update CodeBuild project"
-    exit 1
+        --service-role arn:aws:iam::$AWS_ACCOUNT_ID:role/$ROLE_NAME; then
+        echo "Error: Failed to create CodeBuild project"
+        echo "This might be because the project already exists. Trying to update instead..."
+        
+        # Try updating if create failed due to existing project
+        if ! aws codebuild update-project \
+            --name $PROJECT_NAME \
+            --source file://source-config.json \
+            --artifacts type=NO_ARTIFACTS \
+            --environment type=LINUX_CONTAINER,image=aws/codebuild/amazonlinux2-x86_64-standard:3.0,computeType=BUILD_GENERAL1_LARGE,privilegedMode=true \
+            --service-role arn:aws:iam::$AWS_ACCOUNT_ID:role/$ROLE_NAME; then
+            echo "Error: Failed to both create and update CodeBuild project"
+            exit 1
+        fi
+        echo "Project updated successfully (after failed create)"
+    else
+        echo "Project created successfully"
+    fi
 fi
 
 # Start the build
