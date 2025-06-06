@@ -9,11 +9,39 @@ ENV PYTHONUNBUFFERED=1
 # ENV HF_TOKEN="your_hugging_face_token_here"
 # # Or better, pass at build time or use secrets
 
-# Install Python and Pip
+# Install Python, Pip, and system dependencies for ML/document processing
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.9 \
     python3-pip \
+    python3.9-dev \
+    build-essential \
+    pkg-config \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    libfontconfig1 \
+    libfreetype6 \
+    fonts-dejavu-core \
+    fonts-liberation \
+    ca-certificates \
+    curl \
+    wget \
+    git \
+    locales \
+    libffi-dev \
+    libssl-dev \
+    libjpeg-dev \
+    libpng-dev \
+    libtiff-dev \
+    libwebp-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# Set up locales for international text processing
+RUN locale-gen en_US.UTF-8
+ENV LANG=en_US.UTF-8 LANGUAGE=en_US:en LC_ALL=en_US.UTF-8
 
 # Install poppler-utils
 RUN apt-get update && \
