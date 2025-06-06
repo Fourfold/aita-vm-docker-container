@@ -62,15 +62,31 @@ phases:
         else
           BASE_IMAGE="public.ecr.aws/nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu20.04"
           echo "Using AWS Public ECR NVIDIA image..."
-          # Modify only the base image in the original Dockerfile
-          sed "s|nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu20.04|public.ecr.aws/nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu20.04|g" Dockerfile > Dockerfile.aws
+          # Create a modified Dockerfile with AWS ECR base image and improved apt handling
+          # First, replace the base image
+          sed "s|nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu20.04|public.ecr.aws/nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu20.04|g" Dockerfile > Dockerfile.tmp
           
-          # Add better apt handling at the beginning
-          sed -i '/^FROM /a\n ENV DEBIAN_FRONTEND=noninteractive\n\n# Configure apt sources for better reliability\n RUN echo "deb http://us.archive.ubuntu.com/ubuntu/ focal main restricted universe multiverse" > /etc/apt/sources.list && \\\n    echo "deb http://us.archive.ubuntu.com/ubuntu/ focal-updates main restricted universe multiverse" >> /etc/apt/sources.list && \\\n    echo "deb http://us.archive.ubuntu.com/ubuntu/ focal-backports main restricted universe multiverse" >> /etc/apt/sources.list && \\\n    echo "deb http://security.ubuntu.com/ubuntu focal-security main restricted universe multiverse" >> /etc/apt/sources.list' Dockerfile.aws
+          # Create the final Dockerfile with better apt configuration
+          {
+            # Add the FROM line
+            head -n 1 Dockerfile.tmp
+            
+            # Add environment and apt configuration
+            echo "ENV DEBIAN_FRONTEND=noninteractive"
+            echo ""
+            echo "# Configure apt sources for better reliability"
+            echo "RUN echo \"deb http://us.archive.ubuntu.com/ubuntu/ focal main restricted universe multiverse\" > /etc/apt/sources.list && \\"
+            echo "    echo \"deb http://us.archive.ubuntu.com/ubuntu/ focal-updates main restricted universe multiverse\" >> /etc/apt/sources.list && \\"
+            echo "    echo \"deb http://us.archive.ubuntu.com/ubuntu/ focal-backports main restricted universe multiverse\" >> /etc/apt/sources.list && \\"
+            echo "    echo \"deb http://security.ubuntu.com/ubuntu focal-security main restricted universe multiverse\" >> /etc/apt/sources.list"
+            echo ""
+            
+            # Add the rest of the Dockerfile, skipping the FROM line and improving apt commands
+            tail -n +2 Dockerfile.tmp | sed 's/RUN apt-get update && apt-get install -y --no-install-recommends/RUN for i in 1 2 3; do apt-get update --fix-missing \&\& apt-get install -y --no-install-recommends --fix-missing/g' | sed 's/&& rm -rf \/var\/lib\/apt\/lists\/\*/\&\& break || sleep 10; done \&\& apt-get clean \&\& rm -rf \/var\/lib\/apt\/lists\/*/g'
+            
+          } > Dockerfile.aws
           
-          # Improve apt-get commands with retry logic
-          sed -i 's/RUN apt-get update && apt-get install -y --no-install-recommends/RUN for i in 1 2 3; do apt-get update --fix-missing \&\& apt-get install -y --no-install-recommends --fix-missing/g' Dockerfile.aws
-          sed -i 's/&& rm -rf \/var\/lib\/apt\/lists\/\*/\&\& break || sleep 10; done \&\& apt-get clean \&\& rm -rf \/var\/lib\/apt\/lists\/*/g' Dockerfile.aws
+          rm -f Dockerfile.tmp
           
           docker build -f Dockerfile.aws -t \$IMAGE_REPO_NAME:\$IMAGE_TAG .
           rm -f Dockerfile.aws
