@@ -4,7 +4,6 @@ import os
 import traceback
 import zipfile
 import time
-from IPython.display import clear_output
 import requests
 import json
 import ast

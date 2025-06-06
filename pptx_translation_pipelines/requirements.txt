@@ -4,5 +4,7 @@ fastapi
 uvicorn
 tiktoken
 torch
+peft
 pdf2image
 python-pptx
+firebase-admin
