@@ -159,21 +159,30 @@ cat > source-config.json << EOF
 }
 EOF
 
-# Create the CodeBuild project
-aws codebuild create-project \
-    --name $PROJECT_NAME \
-    --source file://source-config.json \
-    --artifacts type=NO_ARTIFACTS \
-    --environment type=LINUX_CONTAINER,image=aws/codebuild/amazonlinux2-x86_64-standard:3.0,computeType=BUILD_GENERAL1_LARGE,privilegedMode=true \
-    --service-role arn:aws:iam::$AWS_ACCOUNT_ID:role/$ROLE_NAME || echo "Project already exists, updating..."
+# Check if project exists first
+if aws codebuild describe-projects --names $PROJECT_NAME >/dev/null 2>&1; then
+    echo "Project exists, updating..."
+    aws codebuild update-project \
+        --name $PROJECT_NAME \
+        --source file://source-config.json \
+        --artifacts type=NO_ARTIFACTS \
+        --environment type=LINUX_CONTAINER,image=aws/codebuild/amazonlinux2-x86_64-standard:3.0,computeType=BUILD_GENERAL1_LARGE,privilegedMode=true \
+        --service-role arn:aws:iam::$AWS_ACCOUNT_ID:role/$ROLE_NAME
+else
+    echo "Creating new project..."
+    aws codebuild create-project \
+        --name $PROJECT_NAME \
+        --source file://source-config.json \
+        --artifacts type=NO_ARTIFACTS \
+        --environment type=LINUX_CONTAINER,image=aws/codebuild/amazonlinux2-x86_64-standard:3.0,computeType=BUILD_GENERAL1_LARGE,privilegedMode=true \
+        --service-role arn:aws:iam::$AWS_ACCOUNT_ID:role/$ROLE_NAME
+fi
 
-# If project exists, update it
-aws codebuild update-project \
-    --name $PROJECT_NAME \
-    --source file://source-config.json \
-    --artifacts type=NO_ARTIFACTS \
-    --environment type=LINUX_CONTAINER,image=aws/codebuild/amazonlinux2-x86_64-standard:3.0,computeType=BUILD_GENERAL1_LARGE,privilegedMode=true \
-    --service-role arn:aws:iam::$AWS_ACCOUNT_ID:role/$ROLE_NAME || true
+# Verify project was created/updated successfully
+if ! aws codebuild describe-projects --names $PROJECT_NAME >/dev/null 2>&1; then
+    echo "Error: Failed to create or update CodeBuild project"
+    exit 1
+fi
 
 # Create a zip file of the current directory for upload
 echo "Creating source archive..."
