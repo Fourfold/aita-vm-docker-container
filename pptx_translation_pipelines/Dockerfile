@@ -4,10 +4,13 @@ ARG AWS_ACCOUNT_ID
 ARG AWS_REGION=us-east-1
 FROM ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/nvidia-cuda-base:11.8.0-cudnn8-runtime-ubuntu20.04
 
-# Set environment variables
+# Set environment variables to prevent interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
 ENV PYTHONUNBUFFERED=1
-# ENV HF_TOKEN="your_hugging_face_token_here"
-# # Or better, pass at build time or use secrets
+
+# Configure timezone non-interactively
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 # Install Python, Pip, and system dependencies for ML/document processing
 RUN apt-get update && apt-get install -y --no-install-recommends \
