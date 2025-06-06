@@ -45,4 +45,4 @@ COPY . .
 EXPOSE 8000
 
 # Default command to run your app with better logging
-CMD ["python", "start_server.py"]
+CMD ["python3", "start_server.py"]
