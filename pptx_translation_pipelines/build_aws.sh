@@ -151,10 +151,18 @@ aws iam attach-role-policy \
 # Clean up policy file
 rm -f s3-policy.json
 
+# Create source configuration JSON file
+cat > source-config.json << EOF
+{
+    "type": "NO_SOURCE",
+    "buildspec": "buildspec.yml"
+}
+EOF
+
 # Create the CodeBuild project
 aws codebuild create-project \
     --name $PROJECT_NAME \
-    --source file://buildspec.yml \
+    --source file://source-config.json \
     --artifacts type=NO_ARTIFACTS \
     --environment type=LINUX_CONTAINER,image=aws/codebuild/amazonlinux2-x86_64-standard:3.0,computeType=BUILD_GENERAL1_LARGE,privilegedMode=true \
     --service-role arn:aws:iam::$AWS_ACCOUNT_ID:role/$ROLE_NAME || echo "Project already exists, updating..."
@@ -162,7 +170,7 @@ aws codebuild create-project \
 # If project exists, update it
 aws codebuild update-project \
     --name $PROJECT_NAME \
-    --source file://buildspec.yml \
+    --source file://source-config.json \
     --artifacts type=NO_ARTIFACTS \
     --environment type=LINUX_CONTAINER,image=aws/codebuild/amazonlinux2-x86_64-standard:3.0,computeType=BUILD_GENERAL1_LARGE,privilegedMode=true \
     --service-role arn:aws:iam::$AWS_ACCOUNT_ID:role/$ROLE_NAME || true
@@ -185,8 +193,8 @@ BUILD_ID=$(aws codebuild start-build \
     --environment-variables-override name=AWS_DEFAULT_REGION,value=$AWS_REGION name=AWS_ACCOUNT_ID,value=$AWS_ACCOUNT_ID name=IMAGE_REPO_NAME,value=$REPO_NAME name=IMAGE_TAG,value=$IMAGE_TAG \
     --query 'build.id' --output text)
 
-# Clean up local zip file
-rm -f source.zip
+# Clean up local files
+rm -f source.zip source-config.json
 
 echo "Build started with ID: $BUILD_ID"
 echo "You can monitor the build at: https://console.aws.amazon.com/codesuite/codebuild/projects/$PROJECT_NAME/build/$BUILD_ID"
