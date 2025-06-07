@@ -6,7 +6,7 @@ tiktoken
 torch==2.4.0
 transformers==4.51.3
 peft==0.15.2
-bitsandbytes==0.45.5
+bitsandbytes
 accelerate==1.6.0
 pdf2image
 python-pptx
