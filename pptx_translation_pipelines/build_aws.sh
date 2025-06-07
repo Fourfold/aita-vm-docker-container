@@ -68,6 +68,8 @@ phases:
     commands:
       - echo Build started on \`date\`
       - echo Building the Docker image using private ECR NVIDIA CUDA base image...
+      - echo "Debug: Checking available bitsandbytes versions..."
+      - python3 -m pip index versions bitsandbytes || echo "pip index not available, continuing..."
       - docker build --build-arg AWS_ACCOUNT_ID=\$AWS_ACCOUNT_ID --build-arg AWS_REGION=\$AWS_DEFAULT_REGION -t \$IMAGE_REPO_NAME:\$IMAGE_TAG .
       - docker tag \$IMAGE_REPO_NAME:\$IMAGE_TAG \$AWS_ACCOUNT_ID.dkr.ecr.\$AWS_DEFAULT_REGION.amazonaws.com/\$IMAGE_REPO_NAME:\$IMAGE_TAG
   post_build:

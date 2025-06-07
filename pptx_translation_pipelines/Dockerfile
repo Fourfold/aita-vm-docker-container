@@ -79,7 +79,8 @@ COPY ./gemmax2_9b_finetuned /app/gemmax2_9b_finetuned
 
 # Copy requirements and install dependencies
 COPY requirements.txt .
-RUN pip3 install --no-cache-dir -r requirements.txt
+# Install bitsandbytes with specific options for better compatibility
+RUN pip3 install --no-cache-dir --index-url https://pypi.org/simple/ --extra-index-url https://download.pytorch.org/whl/cu118 -r requirements.txt
 # RUN pip3 install --upgrade xformers --index-url https://download.pytorch.org/whl/cu121
 RUN pip3 install --no-cache-dir paddlepaddle-gpu==3.0.0rc0 -i https://www.paddlepaddle.org.cn/packages/stable/cu123/
 
@@ -89,7 +90,11 @@ RUN apt-get install -y swig build-essential python3.9-dev && \
 # Install faiss-cpu first with pre-built wheel, then other packages
 RUN pip3 install --no-cache-dir paddlex==3.0rc0 faiss-cpu==1.8.0 simsimd==1.1.2 --use-pep517
 # Install transformers to fix the version conflict
-RUN pip3 install --no-cache-dir transformers==4.51.3 bitsandbytes==0.42.0 accelerate==1.6.0
+RUN (echo "Trying with --no-deps for bitsandbytes..." && \
+     pip3 install --no-cache-dir --no-deps bitsandbytes==0.45.5) || \
+    (echo "Falling back to latest available bitsandbytes..." && \
+     pip3 install --no-cache-dir bitsandbytes)
+RUN pip3 install --no-cache-dir transformers==4.51.3
 
 # Copy the rest of the files
 COPY . .
