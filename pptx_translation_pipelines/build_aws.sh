@@ -64,6 +64,7 @@ phases:
         else
           echo "Base image already exists in private ECR"
         fi
+      - pip install --upgrade pip
   build:
     commands:
       - echo Build started on \`date\`
