@@ -90,6 +90,9 @@ RUN apt-get install -y swig build-essential python3.9-dev && \
 # # Install faiss-cpu first with pre-built wheel, then other packages
 # RUN pip3 install --no-cache-dir paddlex==3.0rc0 faiss-cpu==1.8.0 simsimd==1.1.2 --use-pep517
 
+RUN echo "Platform detection:" && \
+    uname -a && \
+    python3 -c "import platform; print(f'Platform: {platform.platform()}'); print(f'Machine: {platform.machine()}'); print(f'Architecture: {platform.architecture()}')" && \
 # Install bitsandbytes with multiple fallback options
 RUN echo "Installing bitsandbytes with fallback options..." && \
     # Try latest stable release from GitHub first
