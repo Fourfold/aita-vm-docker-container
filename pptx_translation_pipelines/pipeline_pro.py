@@ -24,7 +24,7 @@ from datetime import timedelta
 from pipeline_utilities import *
 from slide_flipping import process_pptx_flip
 from pipeline_public import PipelinePublic
-from paddle_classifier import PaddleClassifier
+from paddle_classifier import LayoutClassifier
 
 
 model_name = "gemmax2_9b_finetuned"
@@ -171,7 +171,7 @@ class PipelinePro:
             pptFilename = f"{request_id}.pptx"
             pptPath = download_file(request['pptUrl'], pptFilename)
 
-            paddle_classifier = PaddleClassifier()
+            paddle_classifier = LayoutClassifier()
             source, number_of_slides = paddle_classifier.get_source(pptPath, pdfPath, request_id)
 
             logger.publish("Initializing translation...")
