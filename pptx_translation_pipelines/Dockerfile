@@ -89,8 +89,24 @@ RUN apt-get install -y swig build-essential python3.9-dev && \
 # Install faiss-cpu first with pre-built wheel, then other packages
 RUN pip3 install --no-cache-dir paddlex==3.0rc0 faiss-cpu==1.8.0 simsimd==1.1.2 --use-pep517
 
-# Install newer bitsandbytes from GitHub releases if needed
-RUN pip3 install --force-reinstall --no-cache-dir https://github.com/bitsandbytes-foundation/bitsandbytes/releases/download/continuous-release_main/bitsandbytes-1.33.7.preview-py3-none-manylinux_2_24_x86_64.whl
+# Install bitsandbytes with multiple fallback options
+RUN echo "Installing bitsandbytes with fallback options..." && \
+    # Try latest stable release from GitHub first
+    (pip3 install --force-reinstall --no-cache-dir \
+     https://github.com/bitsandbytes-foundation/bitsandbytes/releases/download/0.46.0/bitsandbytes-0.46.0-py3-none-manylinux_2_24_x86_64.whl && \
+     echo "Successfully installed bitsandbytes 0.46.0 from GitHub") || \
+    # Try forcing with --no-deps
+    (pip3 install --force-reinstall --no-deps --no-cache-dir \
+     https://github.com/bitsandbytes-foundation/bitsandbytes/releases/download/0.46.0/bitsandbytes-0.46.0-py3-none-manylinux_2_24_x86_64.whl && \
+     echo "Successfully installed bitsandbytes 0.46.0 with --no-deps") || \
+    # Try from PyPI with version constraint
+    (pip3 install --no-cache-dir "bitsandbytes>=0.43.2" && \
+     echo "Successfully installed bitsandbytes from PyPI") || \
+    # Final fallback to working version
+    (pip3 install --no-cache-dir "bitsandbytes==0.42.0" && \
+     echo "Fallback: installed bitsandbytes 0.42.0") && \
+    python3 -c "import bitsandbytes; print(f'bitsandbytes version: {bitsandbytes.__version__}')"
+
 # Install transformers to fix the version conflict
 RUN pip3 install --no-cache-dir transformers==4.51.3
 
