@@ -88,9 +88,11 @@ RUN apt-get install -y swig build-essential python3.9-dev && \
     apt-get clean
 # Install faiss-cpu first with pre-built wheel, then other packages
 RUN pip3 install --no-cache-dir paddlex==3.0rc0 faiss-cpu==1.8.0 simsimd==1.1.2 --use-pep517
+
+# Install newer bitsandbytes from GitHub releases if needed
+RUN pip3 install --force-reinstall --no-cache-dir https://github.com/bitsandbytes-foundation/bitsandbytes/releases/download/continuous-release_main/bitsandbytes-1.33.7.preview-py3-none-manylinux_2_24_x86_64.whl
 # Install transformers to fix the version conflict
-RUN pip3 install --upgrade xformers --index-url https://download.pytorch.org/whl/cu121
-RUN pip3 install --no-cache-dir transformers==4.51.3 accelerate==1.6.0
+RUN pip3 install --no-cache-dir transformers==4.51.3
 
 # Copy the rest of the files
 COPY . .

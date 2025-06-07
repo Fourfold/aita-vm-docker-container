@@ -78,14 +78,16 @@ class PipelinePro:
             model_kwargs["quantization_config"] = bnb_config
 
         # Load the model with device_map and optional quantization
+        # The device_map="auto" should handle device placement automatically
         self.model = AutoModelForCausalLM.from_pretrained(
-            base_model,
+            self.base_model,
             **model_kwargs
         )
         print(f"Base model loaded successfully on device: {self.model.device}")  # Should show cuda if successful
 
         # --- Load LoRA Adapters ---
         print(f"Loading LoRA adapters from: {lora_adapter_path}...")
+        # Note: PeftModel.from_pretrained should preserve the device and quantization of the base model
         self.model = PeftModel.from_pretrained(self.model, lora_adapter_path)
         print("LoRA adapters loaded successfully.")
         print(f"Final model (with adapters) ready on device: {self.model.device}")
