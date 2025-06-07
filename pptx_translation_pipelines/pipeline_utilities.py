@@ -34,18 +34,17 @@ def get_service_account_key():
     """Retrieve service account key from AWS Secrets Manager"""
     secret_name = "firebase/adminSdk/privateKeys"
     region_name = os.environ.get('AWS_REGION', 'us-east-1')
-    
     # Create a Secrets Manager client
     session = boto3.session.Session()
     client = session.client(
         service_name='secretsmanager',
         region_name=region_name
     )
-    
     try:
         get_secret_value_response = client.get_secret_value(SecretId=secret_name)
-        secret = get_secret_value_response['SecretString']
-        return json.loads(secret)['aita-pipeline-ec2-1']
+        secretObject = get_secret_value_response['SecretString']
+        secret = json.loads(secretObject)['aita-pipeline-ec2-1']
+        return json.loads(secret)
     except Exception as e:
         print(f"Error retrieving secret: {e}")
         raise
