@@ -23,6 +23,7 @@ from pptx.shapes.graphfrm import GraphicFrame
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 from firebase_admin import credentials, storage, db
 import boto3
+import tempfile
 
 db_url = 'https://snb-ai-translation-agent-default-rtdb.firebaseio.com'
 secret = 'nAWmdbcHRL9UGDOP0S1Rp0pZ2c7TEIapUrsEBzHJ'
@@ -51,7 +52,19 @@ def get_service_account_key():
 
 # Get service account credentials from AWS Secrets Manager
 service_account_info = get_service_account_key()
-cred = credentials.Certificate(service_account_info)
+
+# Write the service account info to a temporary JSON file
+temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+with temp_file as f:
+    json.dump(service_account_info, f)
+    temp_file_path = f.name
+
+# Use the temporary file path with Firebase credentials
+cred = credentials.Certificate(temp_file_path)
+
+# Clean up the temporary file after initialization (optional, but good practice)
+# Note: We keep it for now since Firebase might need to re-read it
+# os.unlink(temp_file_path)
 
 firebase_initialized = False
 
