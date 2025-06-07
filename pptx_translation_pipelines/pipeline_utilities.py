@@ -22,12 +22,36 @@ from pptx.shapes.group import GroupShape
 from pptx.shapes.graphfrm import GraphicFrame
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 from firebase_admin import credentials, storage, db
+import boto3
 
 db_url = 'https://snb-ai-translation-agent-default-rtdb.firebaseio.com'
 secret = 'nAWmdbcHRL9UGDOP0S1Rp0pZ2c7TEIapUrsEBzHJ'
 download_folder = "downloads"
 # Path to your service account key
-cred = credentials.Certificate("service_account_key.json")
+
+def get_service_account_key():
+    """Retrieve service account key from AWS Secrets Manager"""
+    secret_name = "firebase/adminSdk/privateKeys"
+    region_name = os.environ.get('AWS_REGION', 'us-east-1')
+    
+    # Create a Secrets Manager client
+    session = boto3.session.Session()
+    client = session.client(
+        service_name='secretsmanager',
+        region_name=region_name
+    )
+    
+    try:
+        get_secret_value_response = client.get_secret_value(SecretId=secret_name)
+        secret = get_secret_value_response['SecretString']
+        return json.loads(secret)['aita-pipeline-ec2-1']
+    except Exception as e:
+        print(f"Error retrieving secret: {e}")
+        raise
+
+# Get service account credentials from AWS Secrets Manager
+service_account_info = get_service_account_key()
+cred = credentials.Certificate(service_account_info)
 
 firebase_initialized = False
 
