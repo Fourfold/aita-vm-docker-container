@@ -3,11 +3,11 @@ boto3
 fastapi
 uvicorn
 tiktoken
-torch
-transformers
-peft
-bitsandbytes
-accelerate
+torch==2.4.0
+transformers==4.51.3
+peft==0.15.2
+bitsandbytes==0.45.5
+accelerate==1.6.0
 pdf2image
 python-pptx
 firebase-admin
