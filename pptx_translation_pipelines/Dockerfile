@@ -46,6 +46,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     portaudio19-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Install newer GCC/G++ to fix PaddlePaddle C++ ABI compatibility
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    software-properties-common \
+    && add-apt-repository ppa:ubuntu-toolchain-r/test \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+    gcc-11 \
+    g++-11 \
+    libstdc++6 \
+    && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 60 \
+    && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-11 60 \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
 # Set up locales for international text processing
 RUN locale-gen en_US.UTF-8
 ENV LANG=en_US.UTF-8 LANGUAGE=en_US:en LC_ALL=en_US.UTF-8
