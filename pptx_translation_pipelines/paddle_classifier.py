@@ -44,7 +44,8 @@ class LayoutClassifier:
         return cls.initialize()
     
 
-    def initialize(cls):
+    def initialize():
+        cls = LayoutClassifier
         if cls._instance is None:
             cls._instance = super(LayoutClassifier, cls).__new__(cls)
             cls._instance.model = create_model(model_name="PP-DocLayout-L")
