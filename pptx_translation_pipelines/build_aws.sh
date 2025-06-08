@@ -146,6 +146,54 @@ aws iam attach-role-policy \
 # Clean up policy file
 rm -f s3-policy.json
 
+# Handle Git LFS files before creating archive
+echo "Checking for Git LFS files..."
+if [ -f "gemmax2_9b_finetuned/adapter_model.safetensors" ]; then
+    ADAPTER_SIZE=$(stat -c%s "gemmax2_9b_finetuned/adapter_model.safetensors" 2>/dev/null || stat -f%z "gemmax2_9b_finetuned/adapter_model.safetensors" 2>/dev/null || echo "0")
+    echo "Current adapter_model.safetensors size: $ADAPTER_SIZE bytes"
+    
+    if [ "$ADAPTER_SIZE" -lt 1000000 ]; then  # Less than 1MB suggests it's a pointer file
+        echo "Detected small file - likely a Git LFS pointer. Attempting to download actual file..."
+        
+        # Check if git-lfs is installed
+        if command -v git-lfs >/dev/null 2>&1; then
+            echo "Git LFS is installed, attempting to pull files..."
+            git lfs pull
+            
+            # Check size again
+            NEW_SIZE=$(stat -c%s "gemmax2_9b_finetuned/adapter_model.safetensors" 2>/dev/null || stat -f%z "gemmax2_9b_finetuned/adapter_model.safetensors" 2>/dev/null || echo "0")
+            echo "New adapter_model.safetensors size: $NEW_SIZE bytes"
+            
+            if [ "$NEW_SIZE" -lt 1000000 ]; then
+                echo "WARNING: Git LFS pull did not download the file. The build may fail."
+                echo "Please ensure you have access to the Git LFS storage and run 'git lfs pull' manually."
+            else
+                echo "Successfully downloaded Git LFS files!"
+            fi
+        else
+            echo "WARNING: Git LFS not installed. Installing..."
+            # Try to install git-lfs
+            if command -v brew >/dev/null 2>&1; then
+                brew install git-lfs
+            elif command -v apt-get >/dev/null 2>&1; then
+                sudo apt-get update && sudo apt-get install -y git-lfs
+            elif command -v yum >/dev/null 2>&1; then
+                sudo yum install -y git-lfs
+            else
+                echo "ERROR: Cannot install git-lfs automatically. Please install it manually and run 'git lfs pull'"
+                exit 1
+            fi
+            
+            git lfs install
+            git lfs pull
+        fi
+    else
+        echo "File size looks correct (>1MB), proceeding with build..."
+    fi
+else
+    echo "adapter_model.safetensors not found. This may cause build issues."
+fi
+
 # Create a zip file of the current directory for upload
 echo "Creating source archive..."
 zip -r source.zip . -x "*.git*" "*.zip"
