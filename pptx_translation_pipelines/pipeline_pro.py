@@ -111,7 +111,7 @@ class PipelinePro:
             for item in c:
                 item["Arabic"] = re.sub(r"¨", "'", item["Arabic"])
             return c
-        except (ValueError, SyntaxError, TypeError) as e:
+        except Exception as e:
             return None
 
 
@@ -177,10 +177,7 @@ class PipelinePro:
             source, number_of_slides = paddle_classifier.get_source(pptPath, pdfPath, request_id)
 
             logger.publish("Initializing translation...")
-            # # Write source to txt file
-            # with open("source.txt", 'w') as file:
-            #     file.write(str(source))
-            # Use source (list of slides) to send requests to LLaMAX
+
             inputJson = []
             for slide in source:
                 slideJson = []
@@ -190,43 +187,47 @@ class PipelinePro:
                         'Text Type': text['type'],
                         'English': text['text']
                     })
-                inputJson.append(str(slideJson).replace('\'', '"'))
+                inputJson.append(slideJson)
 
+
+            if not os.path.exists("outputs"):
+                os.makedirs("outputs")
             outputJson = []
             for i, slide in enumerate(inputJson):
+                if len(slide) == 0:
+                    logger.publish(f"Found empty slide: #{i + 1} of {number_of_slides}")
+                    outputJson.append(None)
+                    continue
+
                 logger.publish(f"Translating slide #{i + 1} of {number_of_slides}...")
-                output_str_list = self.infer(slide)
-                if not os.path.exists("outputs"):
-                    os.makedirs("outputs")
-                with open(f"outputs/output_{request_id}.txt", 'a') as file:
-                    file.write(str(output_str_list))
-                    file.write('\n\n')
+
+                output_list = self.infer(str(slide).replace('\'', '"'))
 
                 selected_output = None
                 try_gpt = False
 
-                if output_str_list is None:
+                if output_list is None:
                     logger.publish(f"Translation parsing error in slide #{i + 1}.")
                     try_gpt = True
-                elif len(slide) != len(output_str_list):
+                elif len(slide) != len(output_list):
                     logger.publish(f"Translation length error in slide #{i + 1}.")
                     try_gpt = True
-                    selected_output = output_str_list
+                    selected_output = output_list
                 else:
-                    selected_output = output_str_list
+                    selected_output = output_list
 
                 if try_gpt:
                     logger.publish(f"Retrying translation for slide #{i + 1}.")
                     gpt_pipeline = PipelinePublic()
-                    output_str_list = gpt_pipeline.infer(slide)
-                    if output_str_list is None:
+                    _, output_list = gpt_pipeline.infer(str(slide).replace('\'', '"'))
+                    if output_list is None:
                         logger.publish(f"Translation parsing error in slide #{i + 1}.")
-                    elif len(slide) != len(output_str_list):
+                    elif len(slide) != len(output_list):
                         logger.publish(f"Translation length error in slide #{i + 1}.")
                         if selected_output is None:
-                            selected_output = output_str_list
+                            selected_output = output_list
                     else:
-                        selected_output = output_str_list
+                        selected_output = output_list
                 
                 outputJson.append(selected_output)
 
@@ -243,7 +244,8 @@ class PipelinePro:
                 raise Exception("Output path is None")
 
             logger.publish("Preparing output file for download...")
-            uploadUrl = self.upload_output(outputPath)
+            uploadUrl = upload_output(outputPath)
+            # TODO: Delete output folder after upload
             logger.publish("Output file ready for download.")
             logger.publish("DONE")
             logger.publish(uploadUrl)

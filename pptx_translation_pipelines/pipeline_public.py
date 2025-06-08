@@ -191,8 +191,11 @@ class PipelinePublic:
     def fetch_and_parse_output(self, prompt):
         response = self.chat_gpt(prompt)
         response = response.replace("```json", "").replace("```", "")
-        response = json.loads(response)
-        return response
+        try:
+            response = json.loads(response)
+            return response
+        except Exception as e:
+            return response
 
 
     def infer(self, input_json: str, index: int = 0):
@@ -231,7 +234,7 @@ class PipelinePublic:
             for item in c:
                 item["Arabic"] = re.sub(r"¨", "'", item["Arabic"])
             return c
-        except (ValueError, SyntaxError, TypeError) as e:
+        except Exception as e:
             return None
 
 
@@ -272,27 +275,30 @@ class PipelinePublic:
                         'Text Type': text['type'],
                         'English': text['text']
                     })
-                inputJson.append(str(slideJson).replace('\'', '"'))
+                inputJson.append(slideJson)
                 outputJson.append(None)
 
+            if not os.path.exists("outputs"):
+                os.makedirs("outputs")
             with concurrent.futures.ThreadPoolExecutor(max_workers=parallelWorkers) as executor:
-                futures = [executor.submit(self.infer, prompt, index) for index, prompt in enumerate(inputJson)]
+                # futures = [executor.submit(self.infer, prompt, index) for index, prompt in enumerate(inputJson)]
+                futures = []
+                for index, prompt in enumerate(inputJson):
+                    if len(prompt) > 0:
+                        futures.append(executor.submit(self.infer, str(prompt).replace('\'', '"'), index))
+                    else:
+                        logger.publish(f"Found empty slide: #{index + 1} of {number_of_slides}")
                 for future in concurrent.futures.as_completed(futures):
-                    i, output_str_list = future.result()
+                    i, output_list = future.result()
 
                     logger.publish(f"Translated slide #{i + 1} of {number_of_slides}...")
-                    if output_str_list is None:
+                    if output_list is None:
                         logger.publish(f"Translation parsing error in slide #{i + 1}.")
                         outputJson[i] = None
                     else:
-                        if len(inputJson[i]) != len(output_str_list):
+                        if len(inputJson[i]) != len(output_list):
                             logger.publish(f"Translation length error in slide #{i + 1}.")
-                        outputJson[i] = output_str_list
-
-            for slide in outputJson:
-                with open(f"outputs/output_{request_id}.txt", 'a') as file:
-                    file.write(str(slide))
-                    file.write('\n\n')
+                        outputJson[i] = output_list
 
             # use outputJson to change text
             outputPath = process_pptx_flip(
@@ -308,6 +314,7 @@ class PipelinePublic:
 
             logger.publish("Preparing output file for download...")
             uploadUrl = upload_output(outputPath)
+            # TODO: Delete output folder after upload
             logger.publish("Output file ready for download.")
             logger.publish("DONE")
             logger.publish(uploadUrl)
