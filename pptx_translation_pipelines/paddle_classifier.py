@@ -49,7 +49,7 @@ class LayoutClassifier:
     
     @staticmethod
     def timeout_handler(signum, frame):
-        print("Model initialization timed out after 10 minutes")
+        print("Model initialization timed out after 3 minutes")
         raise TimeoutError("PaddleX model initialization timeout")
 
     @staticmethod
@@ -64,9 +64,9 @@ class LayoutClassifier:
                 print(f"GPU count: {torch.cuda.device_count()}")
                 print(f"Current GPU: {torch.cuda.get_device_name()}")
             
-            # Set timeout for model initialization (10 minutes)
+            # Set timeout for model initialization (3 minutes)
             signal.signal(signal.SIGALRM, cls.timeout_handler)
-            signal.alarm(600)
+            signal.alarm(180)
             
             try:
                 # GPU compatibility handling for different instance types
