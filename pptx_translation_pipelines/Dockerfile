@@ -143,57 +143,47 @@ RUN echo "GPU and CUDA debugging info:" && \
 
 # Test PaddleX model creation with timeout and memory constraints
 RUN echo "Testing PaddleX model initialization..." && \
-    timeout 300 python3 -c "
-import os
-import signal
-import sys
-import torch
-import gc
-
-def timeout_handler(signum, frame):
-    print('Model initialization timed out after 5 minutes')
-    sys.exit(1)
-
-signal.signal(signal.SIGALRM, timeout_handler)
-signal.alarm(300)  # 5 minute timeout
-
-try:
-    print('Setting memory management...')
-    # Force CPU-only for initial test to avoid GPU hangs
-    os.environ['CUDA_VISIBLE_DEVICES'] = ''
-    
-    print('Importing PaddleX...')
-    from paddlex import create_model
-    
-    print('Creating PP-DocLayout-L model (CPU mode)...')
-    model = create_model(model_name='PP-DocLayout-L')
-    print('Model created successfully!')
-    
-    # Test basic model functionality
-    print('Testing model prediction capability...')
-    # Create a dummy image for testing
-    import numpy as np
-    from PIL import Image
-    dummy_img = Image.fromarray(np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8))
-    dummy_img.save('/tmp/test_img.png')
-    
-    # Test prediction
-    output = model.predict('/tmp/test_img.png', batch_size=1)
-    print('Model prediction test successful!')
-    
-    print('Cleaning up...')
-    del model
-    gc.collect()
-    
-except Exception as e:
-    print(f'Model initialization error: {e}')
-    import traceback
-    traceback.print_exc()
-    sys.exit(1)
-finally:
-    signal.alarm(0)
-    
-print('PaddleX model test completed successfully!')
+    timeout 300 python3 -c "\
+import os; \
+import signal; \
+import sys; \
+import torch; \
+import gc; \
+\
+def timeout_handler(signum, frame): \
+    print('Model initialization timed out after 5 minutes'); \
+    sys.exit(1); \
+\
+signal.signal(signal.SIGALRM, timeout_handler); \
+signal.alarm(300); \
+\
+try: \
+    print('Setting memory management...'); \
+    os.environ['CUDA_VISIBLE_DEVICES'] = ''; \
+    print('Importing PaddleX...'); \
+    from paddlex import create_model; \
+    print('Creating PP-DocLayout-L model (CPU mode)...'); \
+    model = create_model(model_name='PP-DocLayout-L'); \
+    print('Model created successfully!'); \
+    print('Testing model prediction capability...'); \
+    import numpy as np; \
+    from PIL import Image; \
+    dummy_img = Image.fromarray(np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8)); \
+    dummy_img.save('/tmp/test_img.png'); \
+    output = model.predict('/tmp/test_img.png', batch_size=1); \
+    print('Model prediction test successful!'); \
+    print('Cleaning up...'); \
+    del model; \
+    gc.collect(); \
+except Exception as e: \
+    print(f'Model initialization error: {e}'); \
+    import traceback; \
+    traceback.print_exc(); \
+    sys.exit(1); \
+finally: \
+    signal.alarm(0); \
+\
+print('PaddleX model test completed successfully!'); \
 " || echo "Model initialization test failed or timed out"
 
 # Copy the rest of the files
