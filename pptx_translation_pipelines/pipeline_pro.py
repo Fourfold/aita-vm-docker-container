@@ -115,6 +115,76 @@ class PipelinePro:
             return None
 
 
+    def infer_batch(self, input_json_list: list, use_text_stream: bool = False):
+        """
+        Process multiple inputs in a single batch for better GPU utilization
+        """
+        if not input_json_list:
+            return []
+            
+        EOS_TOKEN = self.tokenizer.eos_token
+        
+        # Prepare batch prompts
+        prompts = [PipelinePro.get_prompt(input_json) for input_json in input_json_list]
+        
+        # Tokenize batch with padding
+        inputs = self.tokenizer(
+            prompts, 
+            return_tensors="pt", 
+            padding=True,  # Pad to same length
+            truncation=True,  # Truncate if too long
+            max_length=2048  # Adjust based on your needs
+        ).to("cuda")
+        
+        # Generate for entire batch
+        with torch.no_grad():  # Save memory
+            outputs = self.model.generate(
+                **inputs, 
+                max_new_tokens=4096, 
+                use_cache=True,
+                pad_token_id=self.tokenizer.eos_token_id,
+                do_sample=False  # Deterministic for consistency
+            )
+        
+        # Process batch results
+        results = []
+        input_lengths = inputs["attention_mask"].sum(dim=1)  # Get actual input lengths
+        
+        for i, (output, input_length) in enumerate(zip(outputs, input_lengths)):
+            try:
+                # Extract only the generated part
+                generated_tokens = output[input_length:]
+                generated_text = self.tokenizer.decode(generated_tokens, skip_special_tokens=True)
+                
+                # Clean up the output
+                if 'Arabic: [{"id":' in generated_text:
+                    generated_text = '[{"id":' + generated_text.split('Arabic: [{"id":')[1]
+                
+                output_str_list = generated_text.replace('\\x0c', '\\n').replace('\\x0b', '\\n')
+                if output_str_list.endswith(EOS_TOKEN):
+                    output_str_list = output_str_list[:-len(EOS_TOKEN)]
+                
+                try:
+                    out_list_repr = ast.literal_eval(output_str_list)
+                except (ValueError, SyntaxError, TypeError):
+                    out_list_repr = PipelinePro.reevaluate(output_str_list)
+                
+                # Validate output format
+                if out_list_repr is not None and isinstance(out_list_repr, list):
+                    valid = all(isinstance(item, dict) and "id" in item and "Arabic" in item 
+                              for item in out_list_repr)
+                    if not valid:
+                        out_list_repr = None
+                        
+                results.append(out_list_repr)
+                
+            except Exception as e:
+                print(f"Error processing batch item {i}: {e}")
+                results.append(None)
+        
+        return results
+
+
     def infer(self, input_json: str, use_text_stream: bool = False):
         EOS_TOKEN = self.tokenizer.eos_token
         inputs = self.tokenizer([PipelinePro.get_prompt(input_json)], return_tensors="pt").to("cuda")
@@ -192,44 +262,67 @@ class PipelinePro:
 
             if not os.path.exists("outputs"):
                 os.makedirs("outputs")
-            outputJson = []
+            
+            logger.publish("Processing slides with batch translation...")
+            
+            # Prepare batch data for slides with content
+            batch_slides = []
+            slide_indices = []
+            
             for i, slide in enumerate(inputJson):
                 if len(slide) == 0:
                     logger.publish(f"Found empty slide: #{i + 1} of {number_of_slides}")
-                    outputJson.append(None)
-                    continue
-
-                logger.publish(f"Translating slide #{i + 1} of {number_of_slides}...")
-
-                output_list = self.infer(str(slide).replace('\'', '"'))
-
-                selected_output = None
-                try_gpt = False
-
-                if output_list is None:
-                    logger.publish(f"Translation parsing error in slide #{i + 1}.")
-                    try_gpt = True
-                elif len(slide) != len(output_list):
-                    logger.publish(f"Translation length error in slide #{i + 1}.")
-                    try_gpt = True
-                    selected_output = output_list
                 else:
-                    selected_output = output_list
-
-                if try_gpt:
-                    logger.publish(f"Retrying translation for slide #{i + 1}.")
-                    gpt_pipeline = PipelinePublic()
-                    _, output_list = gpt_pipeline.infer(str(slide).replace('\'', '"'))
-                    if output_list is None:
-                        logger.publish(f"Translation parsing error in slide #{i + 1}.")
-                    elif len(slide) != len(output_list):
-                        logger.publish(f"Translation length error in slide #{i + 1}.")
-                        if selected_output is None:
-                            selected_output = output_list
-                    else:
-                        selected_output = output_list
+                    batch_slides.append(str(slide).replace('\'', '"'))
+                    slide_indices.append(i)
+            
+            # Process slides in batches for better GPU utilization
+            batch_size = min(4, len(batch_slides))  # Adjust based on VRAM and slide complexity
+            outputJson = [None] * number_of_slides  # Initialize with None for all slides
+            
+            if batch_slides:
+                logger.publish(f"Processing {len(batch_slides)} slides in batches of {batch_size}...")
                 
-                outputJson.append(selected_output)
+                for batch_start in range(0, len(batch_slides), batch_size):
+                    batch_end = min(batch_start + batch_size, len(batch_slides))
+                    current_batch = batch_slides[batch_start:batch_end]
+                    current_indices = slide_indices[batch_start:batch_end]
+                    
+                    logger.publish(f"Translating slides {current_indices[0] + 1}-{current_indices[-1] + 1} of {number_of_slides}...")
+                    
+                    # Use batch inference
+                    batch_results = self.infer_batch(current_batch)
+                    
+                    # Process batch results
+                    for local_idx, (slide_idx, output_list) in enumerate(zip(current_indices, batch_results)):
+                        selected_output = None
+                        try_gpt = False
+                        original_slide = inputJson[slide_idx]
+                        
+                        if output_list is None:
+                            logger.publish(f"Translation parsing error in slide #{slide_idx + 1}.")
+                            try_gpt = True
+                        elif len(original_slide) != len(output_list):
+                            logger.publish(f"Translation length error in slide #{slide_idx + 1}.")
+                            try_gpt = True
+                            selected_output = output_list
+                        else:
+                            selected_output = output_list
+
+                        if try_gpt:
+                            logger.publish(f"Retrying translation for slide #{slide_idx + 1} with GPT...")
+                            gpt_pipeline = PipelinePublic()
+                            _, gpt_output_list = gpt_pipeline.infer(str(original_slide).replace('\'', '"'))
+                            if gpt_output_list is None:
+                                logger.publish(f"GPT translation parsing error in slide #{slide_idx + 1}.")
+                            elif len(original_slide) != len(gpt_output_list):
+                                logger.publish(f"GPT translation length error in slide #{slide_idx + 1}.")
+                                if selected_output is None:
+                                    selected_output = gpt_output_list
+                            else:
+                                selected_output = gpt_output_list
+                        
+                        outputJson[slide_idx] = selected_output
 
             # use outputJson to change text
             outputPath = process_pptx_flip(
