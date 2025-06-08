@@ -69,6 +69,7 @@ class LayoutClassifier:
             signal.alarm(180)
             
             try:
+                device_name = "cpu"
                 # GPU compatibility handling for different instance types
                 if torch.cuda.is_available():
                     device_name = torch.cuda.get_device_name().lower()
@@ -85,6 +86,8 @@ class LayoutClassifier:
                 
                 print("Creating model instance...")
                 try:
+                    if 'l4' in device_name:
+                        raise Exception("Incompatible GPU: NVIDIA L4")
                     cls._instance.model = create_model(model_name="PP-DocLayout-L")
                     print("Model initialization completed successfully!")
                 except Exception as gpu_error:
