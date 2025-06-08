@@ -14,11 +14,17 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 # Install Python, Pip, and system dependencies for ML/document processing
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.9 \
+    software-properties-common \
+    && add-apt-repository ppa:deadsnakes/ppa \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+    python3.11 \
+    python3.11-dev \
+    python3.11-distutils \
     python3-pip \
-    python3.9-dev \
     build-essential \
-    pkg-config
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install system dependencies for ML/document processing
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -71,8 +77,9 @@ RUN apt-get update && \
     apt-get install -y poppler-utils && \
     apt-get clean
 
-# Set Python 3.9 as default
-RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.9 1
+# Set Python 3.11 as default
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 \
+    && python3 -m pip install --upgrade pip setuptools wheel
 
 # Create work directory
 WORKDIR /app
@@ -85,29 +92,29 @@ COPY requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
 RUN pip3 install --no-cache-dir paddlepaddle-gpu==3.0.0rc0 -i https://www.paddlepaddle.org.cn/packages/stable/cu123/
 
-RUN apt-get install -y swig build-essential python3.9-dev && \
-    apt-get clean
+RUN apt-get update && apt-get install -y swig build-essential python3.11-dev && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 # Install faiss-cpu first with pre-built wheel, then other packages
 RUN pip3 install --no-cache-dir paddlex==3.0rc0 faiss-cpu==1.8.0 simsimd==1.1.2 --use-pep517
 
 # Platform detection for debugging
 RUN echo "Platform detection:" && \
     uname -a && \
-    python3 -c "import platform; print(f'Platform: {platform.platform()}'); print(f'Machine: {platform.machine()}'); print(f'Architecture: {platform.architecture()}')"
+    python3 --version && \
+    pip3 --version && \
+    python3 -c "import platform; print(f'Platform: {platform.platform()}'); print(f'Machine: {platform.machine()}'); print(f'Architecture: {platform.architecture()}'); import sys; print(f'Python version: {sys.version}')"
 
 # Install bitsandbytes with compatibility for glibc 2.31 (Amazon Linux 2)
-RUN echo "Installing bitsandbytes with compatibility options..." && \
-    # First try: force install with platform override for manylinux2014 (older glibc compatibility)
-    (pip3 install --force-reinstall --no-cache-dir \
-     https://files.pythonhosted.org/packages/51/14/ef38883c6deb2b0c6b8cda3b5d86cb5a1fb9b70bbb6f43ba788bee9a3de7e/bitsandbytes-0.42.0-py3-none-any.whl && \
-     echo "Successfully installed bitsandbytes 0.42.0 from PyPI") || \
-    # Second try: from PyPI directly
+RUN echo "Installing bitsandbytes with Python 3.11 compatibility..." && \
+    # First try: install the latest available version
+    (pip3 install --no-cache-dir --upgrade bitsandbytes && \
+     echo "Successfully installed latest bitsandbytes") || \
+    # Second try: install a specific newer version
+    (pip3 install --no-cache-dir "bitsandbytes>=0.43.2" && \
+     echo "Successfully installed bitsandbytes >= 0.43.2") || \
+    # Fallback: install the working version
     (pip3 install --no-cache-dir "bitsandbytes==0.42.0" && \
-     echo "Successfully installed bitsandbytes 0.42.0 via pip") || \
-    # Third try: force with any available wheel
-    (pip3 install --force-reinstall --no-cache-dir --force \
-     https://files.pythonhosted.org/packages/51/14/ef38883c6deb2b0c6b8cda3b5d86cb5a1fb9b70bbb6f43ba788bee9a3de7e/bitsandbytes-0.42.0-py3-none-any.whl && \
-     echo "Force installed bitsandbytes 0.42.0") && \
+     echo "Fallback: installed bitsandbytes 0.42.0") && \
     python3 -c "import bitsandbytes; print(f'bitsandbytes version: {bitsandbytes.__version__}')"
 
 # Install other essential dependencies

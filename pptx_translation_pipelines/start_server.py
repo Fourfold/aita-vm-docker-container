@@ -4,7 +4,7 @@ import sys
 import os
 
 def main():
-    print("Starting GPT API server...")
+    print("Starting AITA Pipeline server...")
     print(f"Python version: {sys.version}")
     print(f"Current working directory: {os.getcwd()}")
     print(f"Environment variables:")
