@@ -12,6 +12,8 @@ import copy # Needed for deep copying elements
 import re # For parsing adjustment values
 from pathlib import Path # For easier path manipulation
 
+logging = None
+
 # --- Global Namespaces and Constants ---
 NSMAP = {
     "p": "http://schemas.openxmlformats.org/presentationml/2006/main",
@@ -2563,7 +2565,7 @@ def process_pptx_flip(
     Returns:
         The path to the flipped PPTX file if successful, otherwise None.
     """
-
+    global logging
     logging = Logger(publish_id)
     # Use default options if none provided
     if options is None:

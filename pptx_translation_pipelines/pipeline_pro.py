@@ -117,7 +117,7 @@ class PipelinePro:
 
     def infer(self, input_json: str, use_text_stream: bool = False):
         EOS_TOKEN = self.tokenizer.eos_token
-        inputs = self.tokenizer([self.get_prompt(input_json)], return_tensors="pt").to("cuda")
+        inputs = self.tokenizer([PipelinePro.get_prompt(input_json)], return_tensors="pt").to("cuda")
         if not use_text_stream:
             outputs = self.model.generate(**inputs, max_new_tokens=4096, use_cache=True)
             generated_text = '[{"id":' + self.tokenizer.batch_decode(outputs)[0].split('Arabic: [{"id":')[1]
