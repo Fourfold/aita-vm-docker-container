@@ -46,11 +46,6 @@ class LayoutClassifier:
 
     def __new__(cls, *args, **kwargs):
         return cls.initialize()
-    
-    @staticmethod
-    def timeout_handler(signum, frame):
-        print("Model initialization timed out after 3 minutes")
-        raise TimeoutError("PaddleX model initialization timeout")
 
     @staticmethod
     def initialize():
@@ -60,83 +55,47 @@ class LayoutClassifier:
             
             print("Initializing PP-DocLayout-L model...")
             print(f"GPU available: {torch.cuda.is_available()}")
+            
+            # Check GPU compatibility first
+            should_use_model = True
+            
             if torch.cuda.is_available():
                 print(f"GPU count: {torch.cuda.device_count()}")
                 print(f"Current GPU: {torch.cuda.get_device_name()}")
-            
-            # Set timeout for model initialization (3 minutes)
-            signal.signal(signal.SIGALRM, cls.timeout_handler)
-            signal.alarm(180)
-            
-            try:
-                device_name = "cpu"
-                # GPU compatibility handling for different instance types
-                if torch.cuda.is_available():
-                    device_name = torch.cuda.get_device_name().lower()
-                    print(f"Detected GPU: {device_name}")
-                    
-                    # L4 GPUs (g6 instances) may need special handling
-                    if 'l4' in device_name:
-                        print("L4 GPU detected - applying compatibility settings...")
-                        # Force mixed precision and memory optimization
-                        torch.backends.cudnn.benchmark = False
-                        torch.backends.cudnn.deterministic = True
-                        # Reduce memory fragmentation
-                        os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512'
                 
-                print("Creating model instance...")
+                device_name = torch.cuda.get_device_name().upper()
+                print(f"Detected GPU: {device_name}")
+                
+                # Check for incompatible GPUs (L4 on g6.xlarge instances)
+                if 'L4' in device_name:
+                    print(f"L4 GPU detected - PaddleX is incompatible with this GPU. Using fallback text extraction.")
+                    should_use_model = False
+            else:
+                print("No GPU available - Using fallback text extraction.")
+                should_use_model = False
+            
+            if should_use_model:
                 try:
-                    if 'l4' in device_name:
-                        raise Exception("Incompatible GPU: NVIDIA L4")
+                    print("Creating model instance...")
                     cls._instance.model = create_model(model_name="PP-DocLayout-L")
                     print("Model initialization completed successfully!")
-                except Exception as gpu_error:
-                    print(f"GPU model initialization failed: {gpu_error}")
-                    print("Attempting CPU-only fallback...")
                     
-                    # Force CPU-only mode as fallback
-                    original_cuda_visible = os.environ.get('CUDA_VISIBLE_DEVICES', '')
-                    os.environ['CUDA_VISIBLE_DEVICES'] = ''
+                    # Clear memory
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    gc.collect()
                     
-                    try:
-                        cls._instance.model = create_model(model_name="PP-DocLayout-L")
-                        print("CPU-only model initialization successful!")
-                        cls._instance._using_cpu = True
-                    except Exception as cpu_error:
-                        print(f"CPU fallback also failed: {cpu_error}")
-                        # Restore original CUDA setting
-                        if original_cuda_visible:
-                            os.environ['CUDA_VISIBLE_DEVICES'] = original_cuda_visible
-                        else:
-                            os.environ.pop('CUDA_VISIBLE_DEVICES', None)
-                        raise
-                    finally:
-                        # Restore original CUDA setting for other operations
-                        if original_cuda_visible:
-                            os.environ['CUDA_VISIBLE_DEVICES'] = original_cuda_visible
-                        else:
-                            os.environ.pop('CUDA_VISIBLE_DEVICES', None)
-                
-                # Clear memory
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                gc.collect()
-                
-            except TimeoutError:
-                print("Model initialization timed out - this may indicate GPU compatibility issues")
-                print("Container will continue with error handling...")
-                # Don't raise here to prevent container restart
+                except Exception as e:
+                    print(f"Model initialization failed: {e}")
+                    traceback.print_exc()
+                    print("Falling back to basic text extraction...")
+                    cls._instance.model = None
+                    cls._instance._failed_init = True
+            else:
+                # Skip model initialization entirely
+                print("Skipping PaddleX model initialization - using fallback text extraction")
                 cls._instance.model = None
                 cls._instance._failed_init = True
-            except Exception as e:
-                print(f"Model initialization failed: {e}")
-                traceback.print_exc()
-                print("Container will continue with error handling...")
-                # Don't raise here to prevent container restart
-                cls._instance.model = None
-                cls._instance._failed_init = True
-            finally:
-                signal.alarm(0)  # Clear the alarm
                 
         return cls._instance
 

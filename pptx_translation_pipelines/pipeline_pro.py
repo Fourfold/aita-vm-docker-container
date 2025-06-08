@@ -249,6 +249,7 @@ class PipelinePro:
             logger.publish("Output file ready for download.")
             logger.publish("DONE")
             logger.publish(uploadUrl)
+            clear_id(request_id)
             return True
         
         except Exception as e:
