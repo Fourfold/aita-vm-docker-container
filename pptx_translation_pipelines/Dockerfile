@@ -21,7 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.11 \
     python3.11-dev \
     python3.11-distutils \
-    python3-pip \
+    python3.11-venv \
     build-essential \
     pkg-config \
     && rm -rf /var/lib/apt/lists/*
@@ -77,8 +77,9 @@ RUN apt-get update && \
     apt-get install -y poppler-utils && \
     apt-get clean
 
-# Set Python 3.11 as default
+# Set Python 3.11 as default and install pip for Python 3.11
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 \
+    && python3.11 -m ensurepip --upgrade \
     && python3 -m pip install --upgrade pip setuptools wheel
 
 # Create work directory
