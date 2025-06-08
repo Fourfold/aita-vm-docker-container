@@ -196,6 +196,8 @@ class PipelinePro:
             for i, slide in enumerate(inputJson):
                 logger.publish(f"Translating slide #{i + 1} of {number_of_slides}...")
                 output_str_list = self.infer(slide)
+                if not os.path.exists("outputs"):
+                    os.makedirs("outputs")
                 with open(f"outputs/output_{request_id}.txt", 'a') as file:
                     file.write(str(output_str_list))
                     file.write('\n\n')

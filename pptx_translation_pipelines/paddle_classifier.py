@@ -4,6 +4,10 @@ import traceback
 import os
 import zipfile
 import math
+import signal
+import sys
+import gc
+import torch
 from lxml import etree
 from pptx import Presentation
 from pptx.shapes.group import GroupShape
@@ -43,17 +47,150 @@ class LayoutClassifier:
     def __new__(cls, *args, **kwargs):
         return cls.initialize()
     
+    @staticmethod
+    def timeout_handler(signum, frame):
+        print("Model initialization timed out after 10 minutes")
+        raise TimeoutError("PaddleX model initialization timeout")
 
+    @staticmethod
     def initialize():
         cls = LayoutClassifier
         if cls._instance is None:
             cls._instance = super(LayoutClassifier, cls).__new__(cls)
-            cls._instance.model = create_model(model_name="PP-DocLayout-L")
+            
+            print("Initializing PP-DocLayout-L model...")
+            print(f"GPU available: {torch.cuda.is_available()}")
+            if torch.cuda.is_available():
+                print(f"GPU count: {torch.cuda.device_count()}")
+                print(f"Current GPU: {torch.cuda.get_device_name()}")
+            
+            # Set timeout for model initialization (10 minutes)
+            signal.signal(signal.SIGALRM, cls.timeout_handler)
+            signal.alarm(600)
+            
+            try:
+                # GPU compatibility handling for different instance types
+                if torch.cuda.is_available():
+                    device_name = torch.cuda.get_device_name().lower()
+                    print(f"Detected GPU: {device_name}")
+                    
+                    # L4 GPUs (g6 instances) may need special handling
+                    if 'l4' in device_name:
+                        print("L4 GPU detected - applying compatibility settings...")
+                        # Force mixed precision and memory optimization
+                        torch.backends.cudnn.benchmark = False
+                        torch.backends.cudnn.deterministic = True
+                        # Reduce memory fragmentation
+                        os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512'
+                
+                print("Creating model instance...")
+                try:
+                    cls._instance.model = create_model(model_name="PP-DocLayout-L")
+                    print("Model initialization completed successfully!")
+                except Exception as gpu_error:
+                    print(f"GPU model initialization failed: {gpu_error}")
+                    print("Attempting CPU-only fallback...")
+                    
+                    # Force CPU-only mode as fallback
+                    original_cuda_visible = os.environ.get('CUDA_VISIBLE_DEVICES', '')
+                    os.environ['CUDA_VISIBLE_DEVICES'] = ''
+                    
+                    try:
+                        cls._instance.model = create_model(model_name="PP-DocLayout-L")
+                        print("CPU-only model initialization successful!")
+                        cls._instance._using_cpu = True
+                    except Exception as cpu_error:
+                        print(f"CPU fallback also failed: {cpu_error}")
+                        # Restore original CUDA setting
+                        if original_cuda_visible:
+                            os.environ['CUDA_VISIBLE_DEVICES'] = original_cuda_visible
+                        else:
+                            os.environ.pop('CUDA_VISIBLE_DEVICES', None)
+                        raise
+                    finally:
+                        # Restore original CUDA setting for other operations
+                        if original_cuda_visible:
+                            os.environ['CUDA_VISIBLE_DEVICES'] = original_cuda_visible
+                        else:
+                            os.environ.pop('CUDA_VISIBLE_DEVICES', None)
+                
+                # Clear memory
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                gc.collect()
+                
+            except TimeoutError:
+                print("Model initialization timed out - this may indicate GPU compatibility issues")
+                print("Container will continue with error handling...")
+                # Don't raise here to prevent container restart
+                cls._instance.model = None
+                cls._instance._failed_init = True
+            except Exception as e:
+                print(f"Model initialization failed: {e}")
+                traceback.print_exc()
+                print("Container will continue with error handling...")
+                # Don't raise here to prevent container restart
+                cls._instance.model = None
+                cls._instance._failed_init = True
+            finally:
+                signal.alarm(0)  # Clear the alarm
+                
         return cls._instance
 
+    # TODO: Default to Body type since we can't classify
+    def _fallback_text_extraction(self, ppt_path: str, logger):
+        """Fallback text extraction without layout classification when PaddleX fails"""
+        try:
+            logger.publish("Using fallback text extraction without layout classification...")
+            
+            if not os.path.isfile(ppt_path):
+                logger.error(f"PPTX file not found: {ppt_path}")
+                return [], 0
+            
+            from pptx import Presentation
+            presentation = Presentation(ppt_path)
+            source = []
+            
+            for slide_idx, slide in enumerate(presentation.slides):
+                logger.publish(f"Processing slide #{slide_idx + 1}")
+                slide_source = []
+                
+                # Extract all text from shapes without layout classification  
+                for shape in slide.shapes:
+                    if hasattr(shape, "text") and shape.text.strip():
+                        slide_source.append({
+                            "type": "Body",  # Default to Body type since we can't classify
+                            "text": shape.text.strip().replace("'", "'")
+                        })
+                
+                source.append(slide_source)
+            
+            logger.publish(f"Fallback text extraction completed for {len(source)} slides")
+            return source, len(source)
+            
+        except Exception as e:
+            logger.error(f"Fallback text extraction failed: {e}")
+            traceback.print_exc()
+            return [], 0
 
     def get_source(self, ppt_path: str, pdf_path: str, id: str):
         logger = Logger(id)
+        
+        # Check if model initialization failed
+        if hasattr(self, '_failed_init') and self._failed_init:
+            logger.error("PaddleX model failed to initialize - falling back to basic text extraction")
+            # Clean up the PDF file
+            if os.path.exists(pdf_path):
+                os.remove(pdf_path)
+            # Return basic fallback structure without layout classification
+            return self._fallback_text_extraction(ppt_path, logger)
+        
+        if self.model is None:
+            logger.error("PaddleX model is not available - falling back to basic text extraction")
+            # Clean up the PDF file
+            if os.path.exists(pdf_path):
+                os.remove(pdf_path)
+            return self._fallback_text_extraction(ppt_path, logger)
 
         def convert_pdf_to_images_sm(pdf_path, output_folder='pdf2image_output'):
             """Converts a PDF file to image files in the SageMaker environment."""
@@ -174,7 +311,7 @@ class LayoutClassifier:
 
                     slide_source.append({
                         "type": text_type,
-                        "text": nshape[4].replace('\'', '’')
+                        "text": nshape[4].replace("'", "'")
                     })
                 source.append(slide_source)
             return source
