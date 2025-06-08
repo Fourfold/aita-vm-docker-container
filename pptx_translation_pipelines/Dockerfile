@@ -20,56 +20,56 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     pkg-config
 
-# # Install system dependencies for ML/document processing
-# RUN apt-get update && apt-get install -y --no-install-recommends \
-#     libgl1-mesa-glx \
-#     libglib2.0-0 \
-#     libsm6 \
-#     libxext6 \
-#     libxrender-dev \
-#     libgomp1 \
-#     libfontconfig1 \
-#     libfreetype6 \
-#     fonts-dejavu-core \
-#     fonts-liberation \
-#     ca-certificates \
-#     curl \
-#     wget \
-#     git \
-#     locales \
-#     libffi-dev \
-#     libssl-dev \
-#     libjpeg-dev \
-#     libpng-dev \
-#     libtiff-dev \
-#     libwebp-dev \
-#     libsndfile1 \
-#     libsndfile1-dev \
-#     libasound2-dev \
-#     portaudio19-dev \
-#     && rm -rf /var/lib/apt/lists/*
+# Install system dependencies for ML/document processing
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    libfontconfig1 \
+    libfreetype6 \
+    fonts-dejavu-core \
+    fonts-liberation \
+    ca-certificates \
+    curl \
+    wget \
+    git \
+    locales \
+    libffi-dev \
+    libssl-dev \
+    libjpeg-dev \
+    libpng-dev \
+    libtiff-dev \
+    libwebp-dev \
+    libsndfile1 \
+    libsndfile1-dev \
+    libasound2-dev \
+    portaudio19-dev \
+    && rm -rf /var/lib/apt/lists/*
 
-# # Install newer GCC/G++ to fix PaddlePaddle C++ ABI compatibility
-# RUN apt-get update && apt-get install -y --no-install-recommends \
-#     software-properties-common \
-#     && add-apt-repository ppa:ubuntu-toolchain-r/test \
-#     && apt-get update \
-#     && apt-get install -y --no-install-recommends \
-#     gcc-11 \
-#     g++-11 \
-#     libstdc++6 \
-#     && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 60 \
-#     && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-11 60 \
-#     && apt-get clean && rm -rf /var/lib/apt/lists/*
+# Install newer GCC/G++ to fix PaddlePaddle C++ ABI compatibility
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    software-properties-common \
+    && add-apt-repository ppa:ubuntu-toolchain-r/test \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+    gcc-11 \
+    g++-11 \
+    libstdc++6 \
+    && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 60 \
+    && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-11 60 \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# # Set up locales for international text processing
-# RUN locale-gen en_US.UTF-8
-# ENV LANG=en_US.UTF-8 LANGUAGE=en_US:en LC_ALL=en_US.UTF-8
+# Set up locales for international text processing
+RUN locale-gen en_US.UTF-8
+ENV LANG=en_US.UTF-8 LANGUAGE=en_US:en LC_ALL=en_US.UTF-8
 
-# # Install poppler-utils
-# RUN apt-get update && \
-#     apt-get install -y poppler-utils && \
-#     apt-get clean
+# Install poppler-utils
+RUN apt-get update && \
+    apt-get install -y poppler-utils && \
+    apt-get clean
 
 # Set Python 3.9 as default
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.9 1
@@ -80,36 +80,41 @@ WORKDIR /app
 # Copy LoRA adapters first (can be cached if they don't change often)
 COPY ./gemmax2_9b_finetuned /app/gemmax2_9b_finetuned
 
-# # Copy requirements and install dependencies
-# COPY requirements.txt .
-# RUN pip3 install --no-cache-dir -r requirements.txt
-# RUN pip3 install --no-cache-dir paddlepaddle-gpu==3.0.0rc0 -i https://www.paddlepaddle.org.cn/packages/stable/cu123/
+# Copy requirements and install dependencies
+COPY requirements.txt .
+RUN pip3 install --no-cache-dir -r requirements.txt
+RUN pip3 install --no-cache-dir paddlepaddle-gpu==3.0.0rc0 -i https://www.paddlepaddle.org.cn/packages/stable/cu123/
 
 RUN apt-get install -y swig build-essential python3.9-dev && \
     apt-get clean
-# # Install faiss-cpu first with pre-built wheel, then other packages
-# RUN pip3 install --no-cache-dir paddlex==3.0rc0 faiss-cpu==1.8.0 simsimd==1.1.2 --use-pep517
+# Install faiss-cpu first with pre-built wheel, then other packages
+RUN pip3 install --no-cache-dir paddlex==3.0rc0 faiss-cpu==1.8.0 simsimd==1.1.2 --use-pep517
 
+# Platform detection for debugging
 RUN echo "Platform detection:" && \
     uname -a && \
-    python3 -c "import platform; print(f'Platform: {platform.platform()}'); print(f'Machine: {platform.machine()}'); print(f'Architecture: {platform.architecture()}')" && \
-# Install bitsandbytes with multiple fallback options
-RUN echo "Installing bitsandbytes with fallback options..." && \
-    # Try latest stable release from GitHub first
+    python3 -c "import platform; print(f'Platform: {platform.platform()}'); print(f'Machine: {platform.machine()}'); print(f'Architecture: {platform.architecture()}')"
+
+# Install bitsandbytes with compatibility for glibc 2.31 (Amazon Linux 2)
+RUN echo "Installing bitsandbytes with compatibility options..." && \
+    # First try: force install with platform override for manylinux2014 (older glibc compatibility)
     (pip3 install --force-reinstall --no-cache-dir \
-     https://github.com/bitsandbytes-foundation/bitsandbytes/releases/download/0.46.0/bitsandbytes-0.46.0-py3-none-manylinux_2_24_x86_64.whl && \
-     echo "Successfully installed bitsandbytes 0.46.0 from GitHub") || \
-    # Try forcing with --no-deps
-    (pip3 install --force-reinstall --no-deps --no-cache-dir \
-     https://github.com/bitsandbytes-foundation/bitsandbytes/releases/download/0.46.0/bitsandbytes-0.46.0-py3-none-manylinux_2_24_x86_64.whl && \
-     echo "Successfully installed bitsandbytes 0.46.0 with --no-deps") || \
-    # Try from PyPI with version constraint
-    (pip3 install --no-cache-dir "bitsandbytes>=0.43.2" && \
-     echo "Successfully installed bitsandbytes from PyPI") || \
-    # Final fallback to working version
+     https://files.pythonhosted.org/packages/51/14/ef38883c6deb2b0c6b8cda3b5d86cb5a1fb9b70bbb6f43ba788bee9a3de7e/bitsandbytes-0.42.0-py3-none-any.whl && \
+     echo "Successfully installed bitsandbytes 0.42.0 from PyPI") || \
+    # Second try: from PyPI directly
     (pip3 install --no-cache-dir "bitsandbytes==0.42.0" && \
-     echo "Fallback: installed bitsandbytes 0.42.0") && \
+     echo "Successfully installed bitsandbytes 0.42.0 via pip") || \
+    # Third try: force with any available wheel
+    (pip3 install --force-reinstall --no-cache-dir --force \
+     https://files.pythonhosted.org/packages/51/14/ef38883c6deb2b0c6b8cda3b5d86cb5a1fb9b70bbb6f43ba788bee9a3de7e/bitsandbytes-0.42.0-py3-none-any.whl && \
+     echo "Force installed bitsandbytes 0.42.0") && \
     python3 -c "import bitsandbytes; print(f'bitsandbytes version: {bitsandbytes.__version__}')"
+
+# Install other essential dependencies
+RUN pip3 install --no-cache-dir torch==2.4.0 transformers==4.51.3 peft==0.15.2 accelerate==1.6.0
+
+# Test bitsandbytes functionality
+RUN python3 -c "import torch; from transformers import BitsAndBytesConfig; print('Testing BitsAndBytesConfig...'); bnb_config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_use_double_quant=True, bnb_4bit_quant_type='nf4', bnb_4bit_compute_dtype=torch.bfloat16); print('BitsAndBytesConfig created successfully!'); print('CUDA available:', torch.cuda.is_available())"
 
 # Install transformers to fix the version conflict
 RUN pip3 install --no-cache-dir transformers==4.51.3
