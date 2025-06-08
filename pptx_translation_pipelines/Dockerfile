@@ -135,57 +135,6 @@ RUN python3 -c "import torch; from transformers import BitsAndBytesConfig; print
 # Install transformers to fix the version conflict
 RUN pip3 install --no-cache-dir transformers==4.51.3
 
-# Add GPU debugging and memory management for model initialization issues
-RUN echo "GPU and CUDA debugging info:" && \
-    python3 -c "import torch; print(f'PyTorch version: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}'); print(f'CUDA version: {torch.version.cuda if torch.cuda.is_available() else \"N/A\"}'); print(f'GPU count: {torch.cuda.device_count() if torch.cuda.is_available() else 0}'); [print(f'GPU {i}: {torch.cuda.get_device_name(i)}') for i in range(torch.cuda.device_count()) if torch.cuda.is_available()]; print(f'Current GPU: {torch.cuda.current_device() if torch.cuda.is_available() else \"N/A\"}')" && \
-    python3 -c "try: import paddlepaddle; print(f'PaddlePaddle version: {paddlepaddle.__version__}'); print('PaddlePaddle CUDA support:', paddlepaddle.is_compiled_with_cuda()); except Exception as e: print(f'PaddlePaddle error: {e}')" && \
-    python3 -c "try: import paddlex; print(f'PaddleX version: {paddlex.__version__}'); except Exception as e: print(f'PaddleX error: {e}')"
-
-# Test PaddleX model creation with timeout and memory constraints
-RUN echo "Testing PaddleX model initialization..." && \
-    timeout 300 python3 -c "\
-import os; \
-import signal; \
-import sys; \
-import torch; \
-import gc; \
-\
-def timeout_handler(signum, frame): \
-    print('Model initialization timed out after 5 minutes'); \
-    sys.exit(1); \
-\
-signal.signal(signal.SIGALRM, timeout_handler); \
-signal.alarm(300); \
-\
-try: \
-    print('Setting memory management...'); \
-    os.environ['CUDA_VISIBLE_DEVICES'] = ''; \
-    print('Importing PaddleX...'); \
-    from paddlex import create_model; \
-    print('Creating PP-DocLayout-L model (CPU mode)...'); \
-    model = create_model(model_name='PP-DocLayout-L'); \
-    print('Model created successfully!'); \
-    print('Testing model prediction capability...'); \
-    import numpy as np; \
-    from PIL import Image; \
-    dummy_img = Image.fromarray(np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8)); \
-    dummy_img.save('/tmp/test_img.png'); \
-    output = model.predict('/tmp/test_img.png', batch_size=1); \
-    print('Model prediction test successful!'); \
-    print('Cleaning up...'); \
-    del model; \
-    gc.collect(); \
-except Exception as e: \
-    print(f'Model initialization error: {e}'); \
-    import traceback; \
-    traceback.print_exc(); \
-    sys.exit(1); \
-finally: \
-    signal.alarm(0); \
-\
-print('PaddleX model test completed successfully!'); \
-" || echo "Model initialization test failed or timed out"
-
 # Copy the rest of the files
 COPY . .
 
