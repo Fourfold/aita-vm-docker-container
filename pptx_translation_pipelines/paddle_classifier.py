@@ -1,5 +1,5 @@
-from paddlex import create_model
-from pdf2image import convert_from_path
+# from paddlex import create_model
+# from pdf2image import convert_from_path
 import traceback
 import os
 import zipfile
@@ -57,7 +57,9 @@ class LayoutClassifier:
             print(f"GPU available: {torch.cuda.is_available()}")
             
             # Check GPU compatibility first
-            should_use_model = True
+            # TODO: Remove this once we have a working model
+            # should_use_model = True
+            should_use_model = False
             
             if torch.cuda.is_available():
                 print(f"GPU count: {torch.cuda.device_count()}")

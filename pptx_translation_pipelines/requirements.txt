@@ -3,6 +3,7 @@ boto3
 fastapi
 uvicorn
 tiktoken
+bitsandbytes
 torch==2.4.0
 transformers==4.51.3
 peft==0.15.2
@@ -14,5 +15,4 @@ firebase-admin
 vllm
 sentencepiece
 protobuf
-flash-attn
 triton

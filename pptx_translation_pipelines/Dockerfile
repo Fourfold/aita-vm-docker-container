@@ -32,6 +32,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.11-venv \
     build-essential \
     pkg-config \
+    swig \
+    poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Install system dependencies for ML/document processing
@@ -63,27 +65,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     portaudio19-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install newer GCC/G++ to fix PaddlePaddle C++ ABI compatibility
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    software-properties-common \
-    && add-apt-repository ppa:ubuntu-toolchain-r/test \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends \
-    gcc-11 \
-    g++-11 \
-    libstdc++6 \
-    && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 60 \
-    && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-11 60 \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+# # Install newer GCC/G++ to fix PaddlePaddle C++ ABI compatibility
+# RUN apt-get update && apt-get install -y --no-install-recommends \
+#     software-properties-common \
+#     && add-apt-repository ppa:ubuntu-toolchain-r/test \
+#     && apt-get update \
+#     && apt-get install -y --no-install-recommends \
+#     gcc-11 \
+#     g++-11 \
+#     libstdc++6 \
+#     && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 60 \
+#     && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-11 60 \
+#     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Set up locales for international text processing
 RUN locale-gen en_US.UTF-8
 ENV LANG=en_US.UTF-8 LANGUAGE=en_US:en LC_ALL=en_US.UTF-8
-
-# Install poppler-utils
-RUN apt-get update && \
-    apt-get install -y poppler-utils && \
-    apt-get clean
 
 # Set Python 3.11 as default and install pip for Python 3.11
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 \
@@ -99,41 +96,13 @@ COPY ./gemmax2_9b_finetuned /app/gemmax2_9b_finetuned
 # Copy requirements and install dependencies
 COPY requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
-RUN pip3 install --no-cache-dir paddlepaddle-gpu==3.0.0rc0 -i https://www.paddlepaddle.org.cn/packages/stable/cu123/
 
-RUN apt-get update && apt-get install -y swig build-essential python3.11-dev && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
-# Install faiss-cpu first with pre-built wheel, then other packages
-RUN pip3 install --no-cache-dir paddlex==3.0rc0 faiss-cpu==1.8.0 simsimd==1.1.2 --use-pep517
+# Install flashinfer for Gemma2
+RUN pip3 install flashinfer -i https://flashinfer.ai/whl/cu121/torch2.4/
 
-# Platform detection for debugging
-RUN echo "Platform detection:" && \
-    uname -a && \
-    python3 --version && \
-    pip3 --version && \
-    python3 -c "import platform; print(f'Platform: {platform.platform()}'); print(f'Machine: {platform.machine()}'); print(f'Architecture: {platform.architecture()}'); import sys; print(f'Python version: {sys.version}')"
-
-# Install bitsandbytes with compatibility for glibc 2.31 (Amazon Linux 2)
-RUN echo "Installing bitsandbytes with Python 3.11 compatibility..." && \
-    # First try: install the latest available version
-    (pip3 install --no-cache-dir --upgrade bitsandbytes && \
-     echo "Successfully installed latest bitsandbytes") || \
-    # Second try: install a specific newer version
-    (pip3 install --no-cache-dir "bitsandbytes>=0.43.2" && \
-     echo "Successfully installed bitsandbytes >= 0.43.2") || \
-    # Fallback: install the working version
-    (pip3 install --no-cache-dir "bitsandbytes==0.42.0" && \
-     echo "Fallback: installed bitsandbytes 0.42.0") && \
-    python3 -c "import bitsandbytes; print(f'bitsandbytes version: {bitsandbytes.__version__}')"
-
-# Install other essential dependencies
-RUN pip3 install --no-cache-dir torch==2.4.0 transformers==4.51.3 peft==0.15.2 accelerate==1.6.0
-
-# Test bitsandbytes functionality
-RUN python3 -c "import torch; from transformers import BitsAndBytesConfig; print('Testing BitsAndBytesConfig...'); bnb_config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_use_double_quant=True, bnb_4bit_quant_type='nf4', bnb_4bit_compute_dtype=torch.bfloat16); print('BitsAndBytesConfig created successfully!'); print('CUDA available:', torch.cuda.is_available())"
-
-# Install transformers to fix the version conflict
-RUN pip3 install --no-cache-dir transformers==4.51.3
+# # PaddlePaddle installation
+# RUN pip3 install --no-cache-dir paddlepaddle-gpu==3.0.0rc0 -i https://www.paddlepaddle.org.cn/packages/stable/cu123/
+# RUN pip3 install --no-cache-dir paddlex==3.0rc0 faiss-cpu==1.8.0 simsimd==1.1.2 --use-pep517
 
 # Copy the rest of the files
 COPY . .
