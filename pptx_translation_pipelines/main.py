@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 import asyncio
 import threading
 from pipeline_pro import PipelinePro
+from pipeline_pro_vllm import PipelineProVLLM
 from pipeline_public import PipelinePublic
 from paddle_classifier import LayoutClassifier
 from pipeline_utilities import init_firebase
@@ -24,7 +25,8 @@ async def lifespan(app: FastAPI):
     
     global pipeline_pro, pipeline_public
     pipeline_pro = PipelinePro()
-    pipeline_public = PipelinePublic()
+    pipeline_pro = PipelineProVLLM()
+    # pipeline_public = PipelinePublic()
     
     print("App startup complete - ready to handle requests")
     yield
