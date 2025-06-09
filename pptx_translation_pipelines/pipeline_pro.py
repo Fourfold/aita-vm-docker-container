@@ -91,6 +91,45 @@ class PipelinePro:
         self.model = PeftModel.from_pretrained(self.model, lora_adapter_path)
         print("LoRA adapters loaded successfully.")
         print(f"Final model (with adapters) ready on device: {self.model.device}")
+        
+        # Optimize model for better GPU utilization
+        print("Optimizing model for better performance...")
+        try:
+            # Enable optimized attention if available
+            self.model.config.use_cache = True
+            
+            # Enable Flash Attention 2 if available (much faster)
+            if hasattr(self.model.config, 'attn_implementation'):
+                self.model.config.attn_implementation = "flash_attention_2"
+                print("Enabled Flash Attention 2")
+            
+            # Try to compile the model for better GPU utilization (PyTorch 2.0+)
+            if hasattr(torch, 'compile'):
+                print("Compiling model with torch.compile for better GPU utilization...")
+                self.model.generate = torch.compile(
+                    self.model.generate,
+                    mode="reduce-overhead",  # Optimize for throughput
+                    fullgraph=False,  # Allow partial compilation
+                    dynamic=True  # Handle variable batch sizes
+                )
+                print("Model compilation successful!")
+            
+            # Set model to evaluation mode and enable optimizations
+            self.model.eval()
+            
+            # Enable CUDA optimizations
+            if torch.cuda.is_available():
+                torch.backends.cudnn.benchmark = True  # Optimize for consistent input sizes
+                torch.backends.cuda.matmul.allow_tf32 = True  # Enable TF32 for faster matmul
+                torch.backends.cudnn.allow_tf32 = True  # Enable TF32 for convolutions
+                
+                # Set memory pool settings for better allocation
+                os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512,roundup_power2_divisions:16'
+                
+        except Exception as e:
+            print(f"Some optimizations failed (continuing anyway): {e}")
+        
+        print("Model optimization complete!")
 
 
     def get_prompt(input_json: str, output_json: str = ""):
@@ -124,33 +163,40 @@ class PipelinePro:
             
         EOS_TOKEN = self.tokenizer.eos_token
         
-        # Prepare batch prompts
-        prompts = [PipelinePro.get_prompt(input_json) for input_json in input_json_list]
+        # Prepare batch prompts - parallelize this CPU-intensive task
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            prompts = list(executor.map(PipelinePro.get_prompt, input_json_list))
         
-        # Tokenize batch with padding
+        # Tokenize batch with padding - this is CPU intensive
         inputs = self.tokenizer(
             prompts, 
             return_tensors="pt", 
             padding=True,  # Pad to same length
             truncation=True,  # Truncate if too long
-            max_length=2048  # Adjust based on your needs
+            max_length=2048,  # Adjust based on your needs
+            num_proc=4  # Use multiple processes for tokenization if supported
         ).to("cuda")
         
-        # Generate for entire batch
+        # Generate for entire batch with optimized settings
         with torch.no_grad():  # Save memory
             outputs = self.model.generate(
                 **inputs, 
                 max_new_tokens=4096, 
                 use_cache=True,
                 pad_token_id=self.tokenizer.eos_token_id,
-                do_sample=False  # Deterministic for consistency
+                do_sample=False,  # Deterministic for consistency
+                num_beams=1,  # Faster than beam search
+                temperature=1.0,  # Disable sampling overhead
+                top_p=1.0,  # Disable top-p sampling overhead
+                repetition_penalty=1.0  # Disable repetition penalty overhead
             )
         
-        # Process batch results
-        results = []
+        # Process batch results in parallel
+        results = [None] * len(outputs)
         input_lengths = inputs["attention_mask"].sum(dim=1)  # Get actual input lengths
         
-        for i, (output, input_length) in enumerate(zip(outputs, input_lengths)):
+        def process_single_output(args):
+            i, output, input_length = args
             try:
                 # Extract only the generated part
                 generated_tokens = output[input_length:]
@@ -176,11 +222,22 @@ class PipelinePro:
                     if not valid:
                         out_list_repr = None
                         
-                results.append(out_list_repr)
+                return i, out_list_repr
                 
             except Exception as e:
                 print(f"Error processing batch item {i}: {e}")
-                results.append(None)
+                return i, None
+        
+        # Parallelize output processing
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            processed_outputs = list(executor.map(
+                process_single_output, 
+                [(i, output, input_length) for i, (output, input_length) in enumerate(zip(outputs, input_lengths))]
+            ))
+        
+        # Sort results back to original order
+        for i, result in processed_outputs:
+            results[i] = result
         
         return results
 
@@ -248,17 +305,25 @@ class PipelinePro:
 
             logger.publish("Initializing translation...")
 
-            inputJson = []
-            for slide in source:
+            # Parallelize input JSON processing across CPU cores
+            def process_slide_data(slide_data):
+                slide, i = slide_data
                 slideJson = []
-                for i, text in enumerate(slide):
+                for j, text in enumerate(slide):
                     slideJson.append({
-                        'id': i + 1,
+                        'id': j + 1,
                         'Text Type': text['type'],
                         'English': text['text']
                     })
-                inputJson.append(slideJson)
+                return i, slideJson
 
+            inputJson = [None] * len(source)
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                slide_results = list(executor.map(process_slide_data, enumerate(source)))
+            
+            # Sort results back to original order
+            for i, slideJson in slide_results:
+                inputJson[i] = slideJson
 
             if not os.path.exists("outputs"):
                 os.makedirs("outputs")
@@ -277,7 +342,8 @@ class PipelinePro:
                     slide_indices.append(i)
             
             # Process slides in batches for better GPU utilization
-            batch_size = min(4, len(batch_slides))  # Adjust based on VRAM and slide complexity
+            # With 15GB VRAM headroom, we can safely increase batch size
+            batch_size = min(8, len(batch_slides))  # Increased from 4 to 8
             outputJson = [None] * number_of_slides  # Initialize with None for all slides
             
             if batch_slides:
