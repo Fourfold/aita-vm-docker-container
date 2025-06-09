@@ -174,7 +174,6 @@ class PipelinePro:
             padding=True,  # Pad to same length
             truncation=True,  # Truncate if too long
             max_length=2048,  # Adjust based on your needs
-            num_proc=4  # Use multiple processes for tokenization if supported
         ).to("cuda")
         
         # Generate for entire batch with optimized settings
