@@ -307,7 +307,7 @@ class PipelinePro:
 
             # Parallelize input JSON processing across CPU cores
             def process_slide_data(slide_data):
-                slide, i = slide_data
+                i, slide = slide_data
                 slideJson = []
                 for j, text in enumerate(slide):
                     slideJson.append({
