@@ -24,9 +24,9 @@ async def lifespan(app: FastAPI):
     LayoutClassifier.initialize()
     
     global pipeline_pro, pipeline_public
-    pipeline_pro = PipelinePro()
+    # pipeline_pro = PipelinePro()
     pipeline_pro = PipelineProVLLM()
-    # pipeline_public = PipelinePublic()
+    pipeline_public = PipelinePublic()
     
     print("App startup complete - ready to handle requests")
     yield
