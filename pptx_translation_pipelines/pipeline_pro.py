@@ -63,19 +63,35 @@ class PipelinePro:
         model_kwargs = {"device_map": "auto"}
 
         if use_quantization:
-            if quantization_bit == 4:
-                bnb_config = BitsAndBytesConfig(
-                    load_in_4bit=True,
-                    bnb_4bit_use_double_quant=True,
-                    bnb_4bit_quant_type="nf4",
-                    bnb_4bit_compute_dtype=torch.bfloat16  # Use bfloat16 if supported, otherwise float16
-                )
-                # Add torch_dtype for 4-bit loading
-                model_kwargs["torch_dtype"] = torch.bfloat16  # Or torch.float16
-            elif quantization_bit == 8:
-                bnb_config = BitsAndBytesConfig(load_in_8bit=True)
+            try:
+                if quantization_bit == 4:
+                    # Check if bfloat16 is supported, fallback to float16
+                    try:
+                        bf16_supported = torch.cuda.is_bf16_supported() if hasattr(torch.cuda, 'is_bf16_supported') else False
+                    except:
+                        bf16_supported = False
+                    
+                    compute_dtype = torch.bfloat16 if bf16_supported else torch.float16
+                    torch_dtype = compute_dtype
+                    
+                    bnb_config = BitsAndBytesConfig(
+                        load_in_4bit=True,
+                        bnb_4bit_use_double_quant=True,
+                        bnb_4bit_quant_type="nf4",
+                        bnb_4bit_compute_dtype=compute_dtype
+                    )
+                    model_kwargs["torch_dtype"] = torch_dtype
+                    print(f"Configured 4-bit quantization with {torch_dtype}")
+                    
+                elif quantization_bit == 8:
+                    bnb_config = BitsAndBytesConfig(load_in_8bit=True)
+                    print("Configured 8-bit quantization")
 
-            model_kwargs["quantization_config"] = bnb_config
+                model_kwargs["quantization_config"] = bnb_config
+                
+            except Exception as e:
+                print(f"Error setting up quantization, loading without quantization: {e}")
+                use_quantization = False
 
         # Load the model with device_map and optional quantization
         # The device_map="auto" should handle device placement automatically
@@ -94,40 +110,57 @@ class PipelinePro:
         
         # Optimize model for better GPU utilization
         print("Optimizing model for better performance...")
+        
+        # Set model to evaluation mode (essential)
+        self.model.eval()
+        
+        # Enable basic optimizations with error handling for each
         try:
             # Enable optimized attention if available
             self.model.config.use_cache = True
-            
+            print("Enabled model caching")
+        except Exception as e:
+            print(f"Could not enable caching: {e}")
+        
+        try:
             # Enable Flash Attention 2 if available (much faster)
             if hasattr(self.model.config, 'attn_implementation'):
-                self.model.config.attn_implementation = "flash_attention_2"
-                print("Enabled Flash Attention 2")
-            
-            # Try to compile the model for better GPU utilization (PyTorch 2.0+)
-            if hasattr(torch, 'compile'):
-                print("Compiling model with torch.compile for better GPU utilization...")
-                self.model.generate = torch.compile(
-                    self.model.generate,
-                    mode="reduce-overhead",  # Optimize for throughput
-                    fullgraph=False,  # Allow partial compilation
-                    dynamic=True  # Handle variable batch sizes
-                )
-                print("Model compilation successful!")
-            
-            # Set model to evaluation mode and enable optimizations
-            self.model.eval()
-            
-            # Enable CUDA optimizations
+                # Only set if not already configured to avoid conflicts
+                if not hasattr(self.model.config, '_attn_implementation_internal'):
+                    self.model.config.attn_implementation = "flash_attention_2"
+                    print("Enabled Flash Attention 2")
+            else:
+                print("Flash Attention 2 not available for this model")
+        except Exception as e:
+            print(f"Could not enable Flash Attention 2: {e}")
+        
+        try:
+            # Enable CUDA optimizations if available
             if torch.cuda.is_available():
                 torch.backends.cudnn.benchmark = True  # Optimize for consistent input sizes
-                torch.backends.cuda.matmul.allow_tf32 = True  # Enable TF32 for faster matmul
-                torch.backends.cudnn.allow_tf32 = True  # Enable TF32 for convolutions
+                print("Enabled CUDNN benchmark mode")
                 
-                # Set memory pool settings for better allocation
-                os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512,roundup_power2_divisions:16'
+                # Enable TF32 if supported (Ampere and newer GPUs)
+                if hasattr(torch.backends.cuda.matmul, 'allow_tf32'):
+                    torch.backends.cuda.matmul.allow_tf32 = True
+                    print("Enabled TF32 for matrix operations")
                 
+                if hasattr(torch.backends.cudnn, 'allow_tf32'):
+                    torch.backends.cudnn.allow_tf32 = True
+                    print("Enabled TF32 for convolutions")
+                
+                # Set memory pool settings for better allocation (optional)
+                try:
+                    os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512,roundup_power2_divisions:16'
+                    print("Configured CUDA memory allocation settings")
+                except Exception as e:
+                    print(f"Could not set CUDA memory settings: {e}")
+                    
         except Exception as e:
-            print(f"Some optimizations failed (continuing anyway): {e}")
+            print(f"Could not enable CUDA optimizations: {e}")
+        
+        # Skip torch.compile due to compatibility issues with current environment
+        print("Skipping torch.compile optimization due to compatibility issues")
         
         print("Model optimization complete!")
 
