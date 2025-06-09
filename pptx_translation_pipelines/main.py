@@ -13,7 +13,7 @@ pipeline_public = None
 
 # Concurrency control for GPU-bound operations
 _pro_lock = threading.Lock()  # Serialize PipelinePro requests
-_pro_semaphore = threading.Semaphore(2)  # Allow 2 concurrent PipelinePro requests with batching
+# _pro_semaphore = threading.Semaphore(2)  # Allow 2 concurrent PipelinePro requests with batching
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -149,7 +149,8 @@ async def pro(request: dict):
     try:
         # Use semaphore to limit concurrent GPU requests while allowing parallelism
         def run_pro_pipeline():
-            with _pro_semaphore:  # Allow up to 2 concurrent requests
+            # with _pro_semaphore:  # Allow up to 2 concurrent requests
+            with _pro_lock:  # Ensure only one PipelinePro request at a time
                 return pipeline_pro.run_translation(request)
         
         # Run in thread pool to avoid blocking the event loop
