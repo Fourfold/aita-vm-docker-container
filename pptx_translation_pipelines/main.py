@@ -7,6 +7,8 @@ from pipeline_pro_vllm import PipelineProVLLM
 from pipeline_public import PipelinePublic
 from paddle_classifier import LayoutClassifier
 from pipeline_utilities import init_firebase
+import os
+
 
 # Global instances
 pipeline_pro = None
@@ -23,9 +25,19 @@ async def lifespan(app: FastAPI):
     init_firebase()
     LayoutClassifier.initialize()
     
-    global pipeline_pro, pipeline_public
-    # pipeline_pro = PipelinePro()
-    pipeline_pro = PipelineProVLLM()
+    global pipeline_pro, pipeline_public    
+    # Check if we should use the pro model based on environment variable
+    use_pro_model = os.getenv('USE_PRO_MODEL', 'false').lower() == 'true'
+    
+    if use_pro_model:
+        try:
+            pipeline_pro = PipelineProVLLM()
+        except Exception as e:
+            print(f"Error initializing PipelineProVLLM: {e}")
+            pipeline_pro = PipelinePro()
+    else:
+        pipeline_pro = PipelinePublic()
+    
     pipeline_public = PipelinePublic()
     
     print("App startup complete - ready to handle requests")
