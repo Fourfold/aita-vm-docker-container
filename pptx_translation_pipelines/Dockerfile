@@ -97,6 +97,9 @@ COPY ./gemmax2_9b_finetuned /app/gemmax2_9b_finetuned
 COPY requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
 
+# # Install flashinfer for Gemma2
+# RUN pip3 install flashinfer -i https://flashinfer.ai/whl/cu124/torch2.6/
+
 # # PaddlePaddle installation
 # RUN pip3 install --no-cache-dir paddlepaddle-gpu==3.0.0rc0 -i https://www.paddlepaddle.org.cn/packages/stable/cu123/
 # RUN pip3 install --no-cache-dir paddlex==3.0rc0 faiss-cpu==1.8.0 simsimd==1.1.2 --use-pep517

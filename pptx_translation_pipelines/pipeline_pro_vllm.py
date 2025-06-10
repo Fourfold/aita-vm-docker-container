@@ -31,6 +31,8 @@ class PipelineProVLLM:
             cls._instance = super(PipelineProVLLM, cls).__new__(cls)
             cls._instance.model_name = model_name
             cls._instance.base_model = base_model
+            cls._instance.max_tokens = max_tokens
+            cls._instance.batch_size = batch_size
             cls._instance.initialize_model()
         return cls._instance
 
@@ -50,7 +52,7 @@ class PipelineProVLLM:
             
             # GPU memory optimization - reduce since we're not quantizing
             gpu_memory_utilization=0.9,  # Further reduced to account for no quantization
-            max_model_len=max_tokens,  # Significantly reduced to save shared memory
+            max_model_len=self.max_tokens,  # Significantly reduced to save shared memory
             
             # Shared memory optimization - critical for avoiding shared memory errors
             block_size=16,  # Use smallest block size to minimize shared memory usage
@@ -107,7 +109,7 @@ class PipelineProVLLM:
             temperature=0.1,  # Low temperature for consistent translations
             top_p=0.95,
             top_k=50,
-            max_tokens=max_tokens,  # Significantly reduced to save shared memory
+            max_tokens=self.max_tokens,  # Significantly reduced to save shared memory
             repetition_penalty=1.05,
             presence_penalty=0.1,
             frequency_penalty=0.1,
@@ -250,7 +252,7 @@ class PipelineProVLLM:
                     slide_indices.append(i)
             
             # Process slides in batches
-            batch_size = min(batch_size, len(batch_slides))
+            batch_size = min(self.batch_size, len(batch_slides))
             outputJson = [None] * number_of_slides
             
             if batch_slides:
