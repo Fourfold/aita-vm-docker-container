@@ -96,6 +96,7 @@ COPY ./gemmax2_9b_finetuned /app/gemmax2_9b_finetuned
 # Copy requirements and install dependencies
 COPY requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
+RUN pip3 install --no-cache-dir vllm==0.9.0.1
 
 # # Install flashinfer for Gemma2
 # RUN pip3 install flashinfer -i https://flashinfer.ai/whl/cu124/torch2.6/
