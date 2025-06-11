@@ -20,7 +20,7 @@ from paddle_classifier import LayoutClassifier
 model_name = "gemmax2_9b_finetuned"
 base_model = "ModelSpace/GemmaX2-28-9B-Pretrain"
 max_tokens = 2048
-batch_size = 28
+batch_size = 16
 
 
 class PipelineProVLLM:
