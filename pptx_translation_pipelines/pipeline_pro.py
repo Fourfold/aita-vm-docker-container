@@ -171,7 +171,7 @@ class PipelinePro:
             return None
 
 
-    def infer_batch(self, input_json_list: list, use_text_stream: bool = False):
+    def infer_batch(self, input_json_list: list, use_text_stream: bool = False, logger: Logger = None):
         """
         Process multiple inputs in a single batch for better GPU utilization
         """
@@ -217,6 +217,17 @@ class PipelinePro:
                 # Extract only the generated part
                 generated_tokens = output[input_length:]
                 generated_text = self.tokenizer.decode(generated_tokens, skip_special_tokens=True)
+
+                # Log the generated text
+                if logger is not None:
+                    input_token_count = len(inputs['input_ids'][i])
+                    output_token_count = len(generated_tokens)
+                    logger.print_and_write(f"\n\nGemmaX2 Model Output for Slide #{i + 1} in batch:")
+                    logger.print_and_write(f"Input text: {prompts[i]}")
+                    logger.print_and_write(f"Input token count: {input_token_count}")
+                    logger.print_and_write(f"Generated text: {generated_text}")
+                    logger.print_and_write(f"Output token count: {output_token_count}")
+                    logger.print_and_write(f"Total tokens (input + output): {input_token_count + output_token_count}")
                 
                 # Clean up the output
                 if 'Arabic: [{"id":' in generated_text:
@@ -373,7 +384,7 @@ class PipelinePro:
                     logger.publish(f"Translating slides {current_indices[0] + 1}-{current_indices[-1] + 1} of {number_of_slides}...")
                     
                     # Use batch inference
-                    batch_results = self.infer_batch(current_batch)
+                    batch_results = self.infer_batch(current_batch, logger=logger)
                     
                     # Process batch results
                     for local_idx, (slide_idx, output_list) in enumerate(zip(current_indices, batch_results)):

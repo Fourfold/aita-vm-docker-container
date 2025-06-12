@@ -86,10 +86,12 @@ class Logger:
         self.publish_ref = f"logs/{id}"
 
     def info(self, message):
-        print(f"INFO: {message}")
+        # print(f"INFO: {message}")
+        pass
 
     def debug(self, message):
-        print(f"DEBUG: {message}")
+        # print(f"DEBUG: {message}")
+        pass
 
     def warning(self, message):
         self.print_and_write(f"WARNING: {message}")

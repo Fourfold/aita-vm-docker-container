@@ -13,6 +13,7 @@ import os
 # Global instances
 pipeline_pro = None
 pipeline_public = None
+receive_requests = True
 
 # Concurrency control for GPU-bound operations
 _pro_lock = threading.Lock()  # Serialize PipelinePro requests
@@ -25,7 +26,9 @@ async def lifespan(app: FastAPI):
     init_firebase()
     LayoutClassifier.initialize()
     
-    global pipeline_pro, pipeline_public    
+    global pipeline_pro, pipeline_public, receive_requests
+    # Check if we should receive requests based on environment variable
+    receive_requests = os.getenv('RECEIVE_REQUESTS', 'true').lower() != 'false'
     # Check if we should use the pro model based on environment variable
     use_pro_model = os.getenv('USE_PRO_MODEL', 'false').lower() == 'true'
     
@@ -160,6 +163,9 @@ async def pro(request: dict):
     """
     GPU-intensive pipeline with controlled parallel access
     """
+    if not receive_requests:
+        return {"result": "in maintenance mode"}
+    
     try:
         # Use semaphore to limit concurrent GPU requests while allowing parallelism
         def run_pro_pipeline():
@@ -182,6 +188,9 @@ async def public(request: dict):
     """
     GPT-based pipeline with better concurrency support
     """
+    if not receive_requests:
+        return {"result": "in maintenance mode"}
+    
     try:
         # PipelinePublic has internal thread safety, so we can allow more concurrency
         # but still use asyncio.to_thread to avoid blocking

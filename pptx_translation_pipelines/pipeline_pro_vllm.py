@@ -19,8 +19,8 @@ from paddle_classifier import LayoutClassifier
 
 model_name = "gemmax2_9b_finetuned"
 base_model = "ModelSpace/GemmaX2-28-9B-Pretrain"
-max_tokens = 2048
-batch_size = 16
+max_tokens = '2048'
+batch_size = '16'
 
 
 class PipelineProVLLM:
@@ -31,8 +31,14 @@ class PipelineProVLLM:
             cls._instance = super(PipelineProVLLM, cls).__new__(cls)
             cls._instance.model_name = model_name
             cls._instance.base_model = base_model
-            cls._instance.max_tokens = max_tokens
-            cls._instance.batch_size = batch_size
+            try:
+                cls._instance.max_tokens = int(os.getenv('MAX_TOKENS', max_tokens))
+            except (ValueError, TypeError):
+                cls._instance.max_tokens = int(max_tokens)
+            try:
+                cls._instance.batch_size = int(os.getenv('BATCH_SIZE', batch_size))
+            except (ValueError, TypeError):
+                cls._instance.batch_size = int(batch_size)
             cls._instance.initialize_model()
         return cls._instance
 
@@ -52,7 +58,7 @@ class PipelineProVLLM:
             
             # GPU memory optimization - reduce since we're not quantizing
             gpu_memory_utilization=0.9,  # Further reduced to account for no quantization
-            max_model_len=self.max_tokens,  # Significantly reduced to save shared memory
+            max_model_len=4096,  # Significantly reduced to save shared memory
             
             # Shared memory optimization - critical for avoiding shared memory errors
             block_size=16,  # Use smallest block size to minimize shared memory usage
@@ -138,7 +144,7 @@ class PipelineProVLLM:
         except Exception as e:
             return None
 
-    def infer_batch(self, input_json_list: list):
+    def infer_batch(self, input_json_list: list, logger: Logger = None):
         """
         Process multiple inputs in a single batch using VLLM's efficient batching
         """
@@ -158,9 +164,23 @@ class PipelineProVLLM:
         
         # Process outputs
         results = []
-        for output in outputs:
+        for i, output in enumerate(outputs):
             try:
                 generated_text = output.outputs[0].text.strip()
+
+                # Log the generated text
+                if logger is not None:
+                    # Get token counts from vLLM RequestOutput object
+                    input_token_count = len(output.prompt_token_ids) if output.prompt_token_ids else 0
+                    output_token_count = len(output.outputs[0].token_ids) if output.outputs and output.outputs[0].token_ids else 0
+                    
+                    logger.print_and_write(f"\n\nvLLM Model Output for Slide #{i + 1} in batch:")
+                    logger.print_and_write(f"Input text: {prompts[i]}")
+                    logger.print_and_write(f"Input token count: {input_token_count}")
+                    logger.print_and_write(f"Generated text: {generated_text}")
+                    logger.print_and_write(f"Output token count: {output_token_count}")
+                    logger.print_and_write(f"Total tokens (input + output): {input_token_count + output_token_count}")
+                
                 
                 # Extract JSON from output
                 if 'Arabic: [{"id":' in generated_text:
@@ -266,7 +286,7 @@ class PipelineProVLLM:
                     logger.publish(f"Translating slides {current_indices[0] + 1}-{current_indices[-1] + 1} of {number_of_slides}...")
                     
                     # Use VLLM batch inference
-                    batch_results = self.infer_batch(current_batch)
+                    batch_results = self.infer_batch(current_batch, logger=logger)
                     
                     # Process batch results
                     for local_idx, (slide_idx, output_list) in enumerate(zip(current_indices, batch_results)):
