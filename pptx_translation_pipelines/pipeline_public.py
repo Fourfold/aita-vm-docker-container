@@ -18,8 +18,9 @@ from slide_flipping import process_pptx_flip
 from paddle_classifier import LayoutClassifier
 
 
+tpm_limit = 450000
 parallelWorkers = 5
-model = "gpt-4o"
+model = "chatgpt-4o-latest"
 
 
 class PipelinePublic:
@@ -33,7 +34,7 @@ class PipelinePublic:
                 api_key=cls.get_secret()
             )
             cls._instance.parallelWorkers = parallelWorkers
-            cls._instance.token_limiter = PipelinePublic.TokenRateLimiter(tpm_limit=30000, model_name="gpt-4o")
+            cls._instance.token_limiter = PipelinePublic.TokenRateLimiter(tpm_limit=tpm_limit, model_name=model)
         return cls._instance
 
 
@@ -62,8 +63,8 @@ class PipelinePublic:
 
 
     class TokenRateLimiter:
-        EXPECTED_COMPLETION_TOKENS_ESTIMATE = 600
-        def __init__(self, tpm_limit=30000, model_name="gpt-4o"):
+        EXPECTED_COMPLETION_TOKENS_ESTIMATE = 800
+        def __init__(self, tpm_limit=30000, model_name="chatgpt-4o-latest"):
             self.tpm_limit = tpm_limit
             self.token_log = deque()  # Stores (timestamp, tokens_used)
             self.lock = threading.Lock()
@@ -203,6 +204,35 @@ class PipelinePublic:
             out_list_repr = generated_text
 
         return index, out_list_repr
+    
+
+    def parallel_infer(self, inputJson: list, logger: Logger = None):
+        def log(message):
+            if logger is not None:
+                logger.publish(message)
+
+        number_of_slides = len(inputJson)
+        outputJson = [None] * number_of_slides
+        with concurrent.futures.ThreadPoolExecutor(max_workers=parallelWorkers) as executor:
+            futures = []
+            for index, prompt in enumerate(inputJson):
+                if len(prompt) > 0:
+                    futures.append(executor.submit(self.infer, str(prompt).replace('\'', '"'), index))
+                else:
+                    log(f"Found empty slide: #{index + 1} of {number_of_slides}")
+            for future in concurrent.futures.as_completed(futures):
+                i, output_list = future.result()
+
+                log(f"Translated slide #{i + 1} of {number_of_slides}...")
+                if output_list is None:
+                    outputJson[i] = None
+                    log(f"Translation parsing error in slide #{i + 1}.")
+                else:
+                    if len(inputJson[i]) != len(output_list):
+                        log(f"Translation length error in slide #{i + 1}.")
+                    outputJson[i] = output_list
+        
+        return outputJson
 
 
     def reevaluate(a: str):
@@ -264,6 +294,8 @@ class PipelinePublic:
 
             if not os.path.exists("outputs"):
                 os.makedirs("outputs")
+
+            # TODO: replace this with parallel_infer
             with concurrent.futures.ThreadPoolExecutor(max_workers=parallelWorkers) as executor:
                 # futures = [executor.submit(self.infer, prompt, index) for index, prompt in enumerate(inputJson)]
                 futures = []

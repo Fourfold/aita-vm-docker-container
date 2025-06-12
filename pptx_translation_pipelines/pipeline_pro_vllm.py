@@ -291,6 +291,8 @@ class PipelineProVLLM:
             # Process slides in batches
             batch_size = min(self.batch_size, len(batch_slides))
             outputJson = [None] * number_of_slides
+
+            retry_with_gpt_list = []
             
             if batch_slides:
                 logger.publish(f"Processing {len(batch_slides)} slides in batches of {batch_size}...")
@@ -305,36 +307,66 @@ class PipelineProVLLM:
                     # Use VLLM batch inference
                     batch_results = self.infer_batch(current_batch, logger=logger)
                     
+                    # # Process batch results
+                    # for local_idx, (slide_idx, output_list) in enumerate(zip(current_indices, batch_results)):
+                    #     selected_output = None
+                    #     try_gpt = False
+                    #     original_slide = inputJson[slide_idx]
+                        
+                    #     if output_list is None:
+                    #         logger.publish(f"Translation parsing error in slide #{slide_idx + 1}.")
+                    #         try_gpt = True
+                    #     elif len(original_slide) != len(output_list):
+                    #         logger.publish(f"Translation length error in slide #{slide_idx + 1}.")
+                    #         try_gpt = True
+                    #         selected_output = output_list
+                    #     else:
+                    #         selected_output = output_list
+
+                    #     if try_gpt:
+                    #         logger.publish(f"Retrying translation for slide #{slide_idx + 1} with GPT...")
+                    #         gpt_pipeline = PipelinePublic()
+                    #         _, gpt_output_list = gpt_pipeline.infer(str(original_slide).replace('\'', '"'))
+                    #         if gpt_output_list is None:
+                    #             logger.publish(f"GPT translation parsing error in slide #{slide_idx + 1}.")
+                    #         elif len(original_slide) != len(gpt_output_list):
+                    #             logger.publish(f"GPT translation length error in slide #{slide_idx + 1}.")
+                    #             if selected_output is None:
+                    #                 selected_output = gpt_output_list
+                    #         else:
+                    #             selected_output = gpt_output_list
+                        
+                    #     outputJson[slide_idx] = selected_output
+                    
                     # Process batch results
                     for local_idx, (slide_idx, output_list) in enumerate(zip(current_indices, batch_results)):
-                        selected_output = None
+                        output = None
                         try_gpt = False
                         original_slide = inputJson[slide_idx]
                         
                         if output_list is None:
-                            logger.publish(f"Translation parsing error in slide #{slide_idx + 1}.")
+                            logger.warning(f"Translation parsing error in slide #{slide_idx + 1}.")
                             try_gpt = True
                         elif len(original_slide) != len(output_list):
-                            logger.publish(f"Translation length error in slide #{slide_idx + 1}.")
+                            logger.warning(f"Translation length error in slide #{slide_idx + 1}.")
                             try_gpt = True
-                            selected_output = output_list
+                            output = output_list
                         else:
-                            selected_output = output_list
+                            output = output_list
+                        
+                        outputJson[slide_idx] = output
 
                         if try_gpt:
-                            logger.publish(f"Retrying translation for slide #{slide_idx + 1} with GPT...")
-                            gpt_pipeline = PipelinePublic()
-                            _, gpt_output_list = gpt_pipeline.infer(str(original_slide).replace('\'', '"'))
-                            if gpt_output_list is None:
-                                logger.publish(f"GPT translation parsing error in slide #{slide_idx + 1}.")
-                            elif len(original_slide) != len(gpt_output_list):
-                                logger.publish(f"GPT translation length error in slide #{slide_idx + 1}.")
-                                if selected_output is None:
-                                    selected_output = gpt_output_list
-                            else:
-                                selected_output = gpt_output_list
-                        
-                        outputJson[slide_idx] = selected_output
+                            retry_with_gpt_list.append(slide_idx)
+                
+                if len(retry_with_gpt_list) > 0:
+                    logger.publish(f"Refining translations...")
+                    logger.warning(f"Retrying translation of slides: {retry_with_gpt_list} in batch....")
+                    gpt_pipeline = PipelinePublic()
+                    gpt_input_json = [inputJson[i] for i in retry_with_gpt_list]
+                    gpt_output_json = gpt_pipeline.parallel_infer(gpt_input_json, logger=None)
+                    for i, j in enumerate(retry_with_gpt_list):
+                        outputJson[j] = gpt_output_json[i]
 
             # Process output
             outputPath = process_pptx_flip(
