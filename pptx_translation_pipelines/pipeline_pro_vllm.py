@@ -58,7 +58,7 @@ class PipelineProVLLM:
             
             # GPU memory optimization - reduce since we're not quantizing
             gpu_memory_utilization=0.9,  # Further reduced to account for no quantization
-            max_model_len=4096,  # Significantly reduced to save shared memory
+            max_model_len=self.max_tokens,  # Total context window (input + output)
             
             # Shared memory optimization - critical for avoiding shared memory errors
             block_size=16,  # Use smallest block size to minimize shared memory usage
@@ -115,7 +115,7 @@ class PipelineProVLLM:
             temperature=0.1,  # Low temperature for consistent translations
             top_p=0.95,
             top_k=50,
-            max_tokens=self.max_tokens,  # Significantly reduced to save shared memory
+            max_tokens=4096,  # Max output tokens
             repetition_penalty=1.05,
             presence_penalty=0.1,
             frequency_penalty=0.1,
@@ -152,7 +152,20 @@ class PipelineProVLLM:
             return []
         
         # Prepare prompts
-        prompts = [self.get_prompt(input_json) for input_json in input_json_list]
+        # TODO: This is a temporary solution to skip slides that are too long.
+        skipped_slides = []
+        prompts = []
+        for i, input_json in enumerate(input_json_list):
+            prompt = self.get_prompt(input_json)
+            if len(prompt) > 800 / 0.35:
+                skipped_slides.append(i)
+            else:
+                prompts.append(prompt)
+
+        if len(skipped_slides) > 0:
+            logger.print_and_write(f"Skipped {len(skipped_slides)} slides due to token count limit")
+        if len(prompts) == 0:
+            return [None] * len(input_json_list)
         
         # Generate with VLLM
         outputs = self.llm.generate(
@@ -207,6 +220,10 @@ class PipelineProVLLM:
             except Exception as e:
                 print(f"Error processing output: {e}")
                 results.append(None)
+        
+        # Add None values for skipped slides
+        for i in skipped_slides:
+            results.insert(i, None)
         
         return results
 
