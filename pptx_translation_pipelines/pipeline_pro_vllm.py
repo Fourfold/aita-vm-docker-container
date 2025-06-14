@@ -57,7 +57,7 @@ class PipelineProVLLM:
             # No quantization parameter - loads in full precision
             
             # GPU memory optimization - reduce since we're not quantizing
-            gpu_memory_utilization=0.9,  # Further reduced to account for no quantization
+            gpu_memory_utilization=0.95,  # Further reduced to account for no quantization
             max_model_len=self.max_tokens,  # Total context window (input + output)
             
             # Shared memory optimization - critical for avoiding shared memory errors
