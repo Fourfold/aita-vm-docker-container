@@ -123,7 +123,7 @@ class PipelineProVLLM:
 
     @staticmethod
     def get_prompt(input_json: str, output_json: str = ""):
-        instruction = "Translate the following sentences from English to Arabic. Make sure that the id of each sentence matches between the English and Arabic JSON lists."
+        instruction = "Translate the following sentences from english to arabic. Return the translations by id in JSON format.\nMake sure that the number of items in the english and arabic json lists is equal."
         return f"{instruction}\nEnglish:\n```json\n{input_json}\n```\nArabic:\n"
 
     @staticmethod
