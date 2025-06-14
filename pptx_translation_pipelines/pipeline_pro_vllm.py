@@ -187,6 +187,7 @@ class PipelineProVLLM:
                 output = outputs[output_idx]
                 output_idx += 1
                 try:
+                    generated_text = output.outputs[0].text.strip()
 
                     # Log the generated text
                     if logger is not None:
@@ -201,7 +202,7 @@ class PipelineProVLLM:
                         # logger.print_and_write(f"Input text: {prompts[i]}")
                         logger.print_and_write(f"Generated text: {generated_text}")
                     
-                    generated_text = output.outputs[0].text.replace("```json", "").replace("```", "").strip()
+                    generated_text = generated_text.replace("```json", "").replace("```", "").strip()
                     
                     # Clean output
                     output_str_list = generated_text.replace('\\x0c', '\\n').replace('\\x0b', '\\n')
