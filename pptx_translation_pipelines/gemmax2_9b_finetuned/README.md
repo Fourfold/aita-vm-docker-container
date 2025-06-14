@@ -7,14 +7,14 @@ tags:
 - lora
 - generated_from_trainer
 model-index:
-- name: gemmax2_9b_finetuned_v4
+- name: gemmax2_9b_finetuned_v5
   results: []
 ---
 
 <!-- This model card has been generated automatically according to the information the Trainer had access to. You
 should probably proofread and complete it, then remove this comment. -->
 
-# gemmax2_9b_finetuned_v4
+# gemmax2_9b_finetuned_v5
 
 This model is a fine-tuned version of [ModelSpace/GemmaX2-28-9B-Pretrain](https://huggingface.co/ModelSpace/GemmaX2-28-9B-Pretrain) on the training_set dataset.
 
