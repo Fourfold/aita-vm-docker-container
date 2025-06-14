@@ -157,7 +157,7 @@ class PipelineProVLLM:
         prompts = []
         for i, input_json in enumerate(input_json_list):
             prompt = self.get_prompt(input_json)
-            if len(prompt) > 800 / 0.35:
+            if len(prompt) > self.max_tokens / 2 / 0.32: # 0.32 is the average token length per character
                 skipped_slides.append(i)
             else:
                 prompts.append(prompt)
@@ -177,53 +177,57 @@ class PipelineProVLLM:
         
         # Process outputs
         results = []
-        for i, output in enumerate(outputs):
-            try:
-                generated_text = output.outputs[0].text.strip()
-
-                # Log the generated text
-                if logger is not None:
-                    # Get token counts from vLLM RequestOutput object
-                    input_token_count = len(output.prompt_token_ids) if output.prompt_token_ids else 0
-                    output_token_count = len(output.outputs[0].token_ids) if output.outputs and output.outputs[0].token_ids else 0
-                    
-                    logger.print_and_write(f"\n\nvLLM Model Output for Slide #{i + 1} in batch:")
-                    logger.print_and_write(f"Input text: {prompts[i]}")
-                    logger.print_and_write(f"Input token count: {input_token_count}")
-                    logger.print_and_write(f"Generated text: {generated_text}")
-                    logger.print_and_write(f"Output token count: {output_token_count}")
-                    logger.print_and_write(f"Total tokens (input + output): {input_token_count + output_token_count}")
-                
-                
-                # Extract JSON from output
-                if 'Arabic: [{"id":' in generated_text:
-                    generated_text = '[{"id":' + generated_text.split('Arabic: [{"id":')[1]
-                
-                # Clean output
-                output_str_list = generated_text.replace('\\x0c', '\\n').replace('\\x0b', '\\n')
-                
-                # Try to parse JSON
-                try:
-                    out_list_repr = ast.literal_eval(output_str_list)
-                except (ValueError, SyntaxError, TypeError):
-                    out_list_repr = self.reevaluate(output_str_list)
-                
-                # Validate output format
-                if out_list_repr is not None and isinstance(out_list_repr, list):
-                    valid = all(isinstance(item, dict) and "id" in item and "Arabic" in item 
-                              for item in out_list_repr)
-                    if not valid:
-                        out_list_repr = None
-                
-                results.append(out_list_repr)
-                
-            except Exception as e:
-                print(f"Error processing output: {e}")
+        output_idx = 0
+        for i in range(len(input_json_list)):
+            if i in skipped_slides:
                 results.append(None)
-        
-        # Add None values for skipped slides
-        for i in skipped_slides:
-            results.insert(i, None)
+                if logger is not None:
+                    logger.print_and_write(f"\n\nSkipped slide #{i + 1} due to token count limit")
+            else:
+                output = outputs[output_idx]
+                output_idx += 1
+                try:
+                    generated_text = output.outputs[0].text.strip()
+
+                    # Log the generated text
+                    if logger is not None:
+                        # Get token counts from vLLM RequestOutput object
+                        input_token_count = len(output.prompt_token_ids) if output.prompt_token_ids else 0
+                        output_token_count = len(output.outputs[0].token_ids) if output.outputs and output.outputs[0].token_ids else 0
+                        
+                        logger.print_and_write(f"\n\nvLLM Model Output for Slide #{i + 1} in batch:")
+                        logger.print_and_write(f"Input token count: {input_token_count}")
+                        logger.print_and_write(f"Output token count: {output_token_count}")
+                        logger.print_and_write(f"Total tokens (input + output): {input_token_count + output_token_count}")
+                        # logger.print_and_write(f"Input text: {prompts[i]}")
+                        logger.print_and_write(f"Generated text: {generated_text}")
+                    
+                    
+                    # Extract JSON from output
+                    if 'Arabic: [{"id":' in generated_text:
+                        generated_text = '[{"id":' + generated_text.split('Arabic: [{"id":')[1]
+                    
+                    # Clean output
+                    output_str_list = generated_text.replace('\\x0c', '\\n').replace('\\x0b', '\\n')
+                    
+                    # Try to parse JSON
+                    try:
+                        out_list_repr = ast.literal_eval(output_str_list)
+                    except (ValueError, SyntaxError, TypeError):
+                        out_list_repr = self.reevaluate(output_str_list)
+                    
+                    # Validate output format
+                    if out_list_repr is not None and isinstance(out_list_repr, list):
+                        valid = all(isinstance(item, dict) and "id" in item and "Arabic" in item 
+                                for item in out_list_repr)
+                        if not valid:
+                            out_list_repr = None
+                    
+                    results.append(out_list_repr)
+                    
+                except Exception as e:
+                    print(f"Error processing output: {e}")
+                    results.append(None)
         
         return results
 
@@ -345,10 +349,10 @@ class PipelineProVLLM:
                         original_slide = inputJson[slide_idx]
                         
                         if output_list is None:
-                            logger.warning(f"Translation parsing error in slide #{slide_idx + 1}.")
+                            logger.print_and_write(f"Translation parsing error in slide #{slide_idx + 1}.")
                             try_gpt = True
                         elif len(original_slide) != len(output_list):
-                            logger.warning(f"Translation length error in slide #{slide_idx + 1}.")
+                            logger.print_and_write(f"Translation length error in slide #{slide_idx + 1}.")
                             try_gpt = True
                             output = output_list
                         else:
@@ -361,7 +365,7 @@ class PipelineProVLLM:
                 
                 if len(retry_with_gpt_list) > 0:
                     logger.publish(f"Refining translations...")
-                    logger.warning(f"Retrying translation of slides: {retry_with_gpt_list} in batch....")
+                    logger.print_and_write(f"Retrying translation of slides: {retry_with_gpt_list}")
                     gpt_pipeline = PipelinePublic()
                     gpt_input_json = [inputJson[i] for i in retry_with_gpt_list]
                     gpt_output_json = gpt_pipeline.parallel_infer(gpt_input_json, logger=None)

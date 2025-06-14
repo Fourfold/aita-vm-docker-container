@@ -19,7 +19,7 @@ from paddle_classifier import LayoutClassifier
 
 
 tpm_limit = 450000
-parallelWorkers = 5
+parallelWorkers = 20
 model = "chatgpt-4o-latest"
 
 
