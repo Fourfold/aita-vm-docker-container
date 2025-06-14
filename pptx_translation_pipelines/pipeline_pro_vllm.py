@@ -123,8 +123,7 @@ class PipelineProVLLM:
 
     @staticmethod
     def get_prompt(input_json: str, output_json: str = ""):
-        input_json = input_json.replace("{", "\n  {").replace("]", "\n]")
-        instruction = "Translate the following sentences from english to arabic. Return the translations by id in JSON format. MAKE SURE THAT THE NUMBER OF ITEMS IN THE ENGLISH AND ARABIC JSON LISTS IS EQUAL."
+        instruction = "Translate the following sentences from English to Arabic. Make sure that the id of each sentence matches between the English and Arabic JSON lists."
         return f"{instruction}\nEnglish:\n```json\n{input_json}\n```\nArabic:\n"
 
     @staticmethod
@@ -134,13 +133,13 @@ class PipelineProVLLM:
         b = re.sub(r'\[{"id"', "[{'id'", b)
         b = re.sub(r'"}, {"id"', "'}, {'id'", b)
         b = re.sub(r'"},{"id"', "'},{'id'", b)
-        b = re.sub(r'"arabic": "', "'arabic': '", b)
-        b = re.sub(r'"arabic":"', "'arabic':'", b)
+        b = re.sub(r'"Arabic": "', "'Arabic': '", b)
+        b = re.sub(r'"Arabic":"', "'Arabic':'", b)
         b = re.sub(r'"}]', "'}]", b)
         try:
             c = ast.literal_eval(b)
             for item in c:
-                item["arabic"] = re.sub(r"¨", "'", item["arabic"])
+                item["Arabic"] = re.sub(r"¨", "'", item["Arabic"])
             return c
         except Exception as e:
             return None
@@ -216,7 +215,7 @@ class PipelineProVLLM:
                     
                     # Validate output format
                     if out_list_repr is not None and isinstance(out_list_repr, list):
-                        valid = all(isinstance(item, dict) and "id" in item and "arabic" in item 
+                        valid = all(isinstance(item, dict) and "id" in item and "Arabic" in item 
                                 for item in out_list_repr)
                         if not valid:
                             out_list_repr = None
@@ -263,7 +262,7 @@ class PipelineProVLLM:
                     slideJson.append({
                         'id': j + 1,
                         'text_type': text['type'],
-                        'english': text['text']
+                        'English': text['text']
                     })
                 return i, slideJson
 

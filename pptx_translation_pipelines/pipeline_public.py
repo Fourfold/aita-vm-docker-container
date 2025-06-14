@@ -142,10 +142,10 @@ class PipelinePublic:
 
 
     def get_prompt(input_json: str, output_json: str = ""):
-        instruction = """Translate the following sentences from english to arabic. Return the translations by id in JSON format. Do not translate any acronyms or words that are better left in english.
+        instruction = """Translate the following sentences from English to Arabic. Return the translations by id in JSON format. Do not translate any acronyms or words that are better left in English.
         Example:
-        English: [{"id": 1, "text_type": "Page Title", "english": "The Sun"}, {"id": 2, "text_type": "Page Title", "english": "The sun was setting over the horizon, painting the sky in shades of orange and pink."}]
-        Arabic: [{"id": 1, "arabic": "الشمس"}, {"id": 2, "arabic": "كانت الشمس تغرب عند الأفق، لتملأ السماء بدرجات اللون البرتقالي والوردي."}]
+        English: [{"id": 1, "text_type": "Page Title", "English": "The Sun"}, {"id": 2, "text_type": "Page Title", "English": "The sun was setting over the horizon, painting the sky in shades of orange and pink."}]
+        Arabic: [{"id": 1, "Arabic": "الشمس"}, {"id": 2, "Arabic": "كانت الشمس تغرب عند الأفق، لتملأ السماء بدرجات اللون البرتقالي والوردي."}]
         """
         return f"{instruction}\nEnglish: {input_json}\nArabic: {output_json}"
 
@@ -196,7 +196,7 @@ class PipelinePublic:
             if out_list_repr is not None:
                 if isinstance(out_list_repr, list):
                     for item in out_list_repr:
-                        if isinstance(item, dict) and "id" in item and "arabic" in item:
+                        if isinstance(item, dict) and "id" in item and "Arabic" in item:
                             pass
                         else:
                             out_list_repr = None
@@ -240,13 +240,13 @@ class PipelinePublic:
         b = re.sub(r'\[{"id"', "[{'id'", b)
         b = re.sub(r'"}, {"id"', "'}, {'id'", b)
         b = re.sub(r'"},{"id"', "'},{'id'", b)
-        b = re.sub(r'"arabic": "', "'arabic': '", b)
-        b = re.sub(r'"arabic":"', "'arabic':'", b)
+        b = re.sub(r'"Arabic": "', "'Arabic': '", b)
+        b = re.sub(r'"Arabic":"', "'Arabic':'", b)
         b = re.sub(r'"}]', "'}]", b)
         try:
             c = ast.literal_eval(b)
             for item in c:
-                item["arabic"] = re.sub(r"¨", "'", item["arabic"])
+                item["Arabic"] = re.sub(r"¨", "'", item["Arabic"])
             return c
         except Exception as e:
             return None
@@ -287,7 +287,7 @@ class PipelinePublic:
                     slideJson.append({
                         'id': i + 1,
                         'text_type': text['type'],
-                        'english': text['text']
+                        'English': text['text']
                     })
                 inputJson.append(slideJson)
                 outputJson.append(None)
