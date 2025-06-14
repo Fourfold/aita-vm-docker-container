@@ -7,6 +7,7 @@ avoiding quantization format compatibility issues.
 import torch
 from vllm import LLM, SamplingParams
 from vllm.lora.request import LoRARequest
+from transformers import AutoTokenizer
 import os
 import ast
 from concurrent.futures import ThreadPoolExecutor
@@ -49,6 +50,8 @@ class PipelineProVLLM:
         
         print("Initializing VLLM engine without quantization...")
         print("Note: This will use more GPU memory but avoids quantization compatibility issues")
+        
+        self.tokenizer = AutoTokenizer.from_pretrained(self.base_model)
         
         # VLLM configuration for full precision model
         # Adjust memory settings since we're not using quantization
@@ -155,18 +158,16 @@ class PipelineProVLLM:
         # TODO: This is a temporary solution to skip slides that are too long.
         skipped_slides = []
         prompts = []
-        # Get the tokenizer from the LLM instance
-        tokenizer = self.llm.get_tokenizer_group().get_lora_tokenizer(None)
 
         for i, input_json in enumerate(input_json_list):
             prompt = self.get_prompt(input_json)
 
-            # Tokenize and count exact tokens
-            prompt_token_ids = tokenizer.encode(request_id="temp_id", prompt=prompt, lora_request=None)
-            exact_token_count = len(prompt_token_ids)
+            # Calculate the token count of the prompt
+            prompt_tokens = self.tokenizer.encode(prompt, add_special_tokens=False)
+            token_count = len(prompt_tokens)
 
-            # Replace your current estimation
-            if exact_token_count > 0.6 * self.max_tokens:
+            # Skip slides that are too long
+            if token_count > 0.6 * self.max_tokens:
                 skipped_slides.append(i)
             else:
                 prompts.append(prompt)
