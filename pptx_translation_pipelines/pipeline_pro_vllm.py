@@ -155,9 +155,18 @@ class PipelineProVLLM:
         # TODO: This is a temporary solution to skip slides that are too long.
         skipped_slides = []
         prompts = []
+        # Get the tokenizer from the LLM instance
+        tokenizer = self.llm.get_tokenizer_group().get_lora_tokenizer(None)
+
         for i, input_json in enumerate(input_json_list):
             prompt = self.get_prompt(input_json)
-            if len(prompt) > self.max_tokens / 2 / 0.32: # 0.32 is the average token length per character
+
+            # Tokenize and count exact tokens
+            prompt_token_ids = tokenizer.encode(request_id="temp_id", prompt=prompt, lora_request=None)
+            exact_token_count = len(prompt_token_ids)
+
+            # Replace your current estimation
+            if exact_token_count > 0.6 * self.max_tokens:
                 skipped_slides.append(i)
             else:
                 prompts.append(prompt)
