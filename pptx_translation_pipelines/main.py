@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, Response
 from contextlib import asynccontextmanager
 import asyncio
 import threading
-from pipeline_pro import PipelinePro
+# from pipeline_pro import PipelinePro
 from pipeline_pro_vllm import PipelineProVLLM
 from pipeline_public import PipelinePublic
 from paddle_classifier import LayoutClassifier
@@ -37,7 +37,8 @@ async def lifespan(app: FastAPI):
             pipeline_pro = PipelineProVLLM()
         except Exception as e:
             print(f"Error initializing PipelineProVLLM: {e}")
-            pipeline_pro = PipelinePro()
+            # pipeline_pro = PipelinePro()
+            pipeline_pro = PipelinePublic()
     else:
         pipeline_pro = PipelinePublic()
     

@@ -187,7 +187,6 @@ class PipelineProVLLM:
                 output = outputs[output_idx]
                 output_idx += 1
                 try:
-                    generated_text = output.outputs[0].text.strip()
 
                     # Log the generated text
                     if logger is not None:
@@ -202,10 +201,7 @@ class PipelineProVLLM:
                         # logger.print_and_write(f"Input text: {prompts[i]}")
                         logger.print_and_write(f"Generated text: {generated_text}")
                     
-                    
-                    # Extract JSON from output
-                    if 'Arabic: [{"id":' in generated_text:
-                        generated_text = '[{"id":' + generated_text.split('Arabic: [{"id":')[1]
+                    generated_text = output.outputs[0].text.replace("```json", "").replace("```", "").strip()
                     
                     # Clean output
                     output_str_list = generated_text.replace('\\x0c', '\\n').replace('\\x0b', '\\n')
@@ -365,7 +361,7 @@ class PipelineProVLLM:
                 
                 if len(retry_with_gpt_list) > 0:
                     logger.publish(f"Refining translations...")
-                    logger.print_and_write(f"Retrying translation of slides: {retry_with_gpt_list}")
+                    logger.print_and_write(f"Retrying translation of slides: {[i + 1 for i in retry_with_gpt_list]}")
                     gpt_pipeline = PipelinePublic()
                     gpt_input_json = [inputJson[i] for i in retry_with_gpt_list]
                     gpt_output_json = gpt_pipeline.parallel_infer(gpt_input_json, logger=None)
