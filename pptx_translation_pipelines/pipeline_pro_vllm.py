@@ -123,8 +123,9 @@ class PipelineProVLLM:
 
     @staticmethod
     def get_prompt(input_json: str, output_json: str = ""):
+        input_json = input_json.replace("{", "\n  {").replace("]", "\n]")
         instruction = "Translate the following sentences from english to arabic. Return the translations by id in JSON format. MAKE SURE THAT THE NUMBER OF ITEMS IN THE ENGLISH AND ARABIC JSON LISTS IS EQUAL."
-        return f"{instruction}\nEnglish: {input_json}\nArabic: {output_json}"
+        return f"{instruction}\nEnglish:\n```json\n{input_json}\n```\nArabic:\n"
 
     @staticmethod
     def reevaluate(a: str):
@@ -133,13 +134,13 @@ class PipelineProVLLM:
         b = re.sub(r'\[{"id"', "[{'id'", b)
         b = re.sub(r'"}, {"id"', "'}, {'id'", b)
         b = re.sub(r'"},{"id"', "'},{'id'", b)
-        b = re.sub(r'"Arabic": "', "'Arabic': '", b)
-        b = re.sub(r'"Arabic":"', "'Arabic':'", b)
+        b = re.sub(r'"arabic": "', "'arabic': '", b)
+        b = re.sub(r'"arabic":"', "'arabic':'", b)
         b = re.sub(r'"}]', "'}]", b)
         try:
             c = ast.literal_eval(b)
             for item in c:
-                item["Arabic"] = re.sub(r"¨", "'", item["Arabic"])
+                item["arabic"] = re.sub(r"¨", "'", item["arabic"])
             return c
         except Exception as e:
             return None
@@ -215,7 +216,7 @@ class PipelineProVLLM:
                     
                     # Validate output format
                     if out_list_repr is not None and isinstance(out_list_repr, list):
-                        valid = all(isinstance(item, dict) and "id" in item and "Arabic" in item 
+                        valid = all(isinstance(item, dict) and "id" in item and "arabic" in item 
                                 for item in out_list_repr)
                         if not valid:
                             out_list_repr = None
