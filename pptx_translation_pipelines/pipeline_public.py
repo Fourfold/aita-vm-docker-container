@@ -286,8 +286,8 @@ class PipelinePublic:
                 for i, text in enumerate(slide):
                     slideJson.append({
                         'id': i + 1,
-                        'Text Type': text['type'],
-                        'English': text['text']
+                        'text_type': text['type'],
+                        'english': text['text']
                     })
                 inputJson.append(slideJson)
                 outputJson.append(None)

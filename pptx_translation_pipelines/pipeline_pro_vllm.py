@@ -260,8 +260,8 @@ class PipelineProVLLM:
                 for j, text in enumerate(slide):
                     slideJson.append({
                         'id': j + 1,
-                        'Text Type': text['type'],
-                        'English': text['text']
+                        'text_type': text['type'],
+                        'english': text['text']
                     })
                 return i, slideJson
 
