@@ -5,12 +5,16 @@ from paddle_classifier import LayoutClassifier
 from pipeline_utilities import init_firebase
 
 
+paddle_classifier = None
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup code
     print("App is starting up...")
     init_firebase()
-    LayoutClassifier.initialize()
+
+    global paddle_classifier
+    paddle_classifier = LayoutClassifier()
     
     print("App startup complete - ready to handle requests")
     yield
@@ -31,7 +35,7 @@ def health_check():
 @app.post("/layout")
 async def layout(request: dict):
     try:
-        result = await asyncio.to_thread(LayoutClassifier.run_classification, request)
+        result = await asyncio.to_thread(paddle_classifier.run_classification, request)
         
         if result:
             return result
