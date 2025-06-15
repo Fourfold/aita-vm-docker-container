@@ -1,0 +1,7 @@
+boto3
+fastapi
+uvicorn
+torch==2.4.0
+pdf2image
+python-pptx
+firebase_admin

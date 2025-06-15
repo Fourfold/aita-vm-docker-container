@@ -1,5 +1,6 @@
 import os
 import tempfile
+from pathlib import Path # For easier path manipulation
 import requests
 import json
 import firebase_admin
@@ -112,8 +113,6 @@ def upload_output(output_path: str):
 
     # Optionally make it publicly accessible
     return blob.generate_signed_url(expiration=timedelta(hours=2))
-    blob.make_public()
-    return blob.public_url
 
 
 def download_file(url: str, filename: str):
@@ -126,13 +125,3 @@ def download_file(url: str, filename: str):
         file.write(response.content)
     return output_path
 
-
-def clear_id(id: str):
-    pass
-    # init_firebase()
-    # try:
-    #     ref = db.reference(f"/translation_requests/{id}")
-    #     ref.set({})
-    # except Exception as e:
-    #     print(f"Error clearing translation request {id}: {e}")
-    #     raise

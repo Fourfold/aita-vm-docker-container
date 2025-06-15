@@ -1,5 +1,5 @@
-# from paddlex import create_model
-# from pdf2image import convert_from_path
+from paddlex import create_model
+from pdf2image import convert_from_path
 import traceback
 import os
 import zipfile
@@ -13,7 +13,7 @@ from pptx import Presentation
 from pptx.shapes.group import GroupShape
 from pptx.shapes.graphfrm import GraphicFrame
 from pptx.enum.shapes import MSO_SHAPE_TYPE
-from pipeline_utilities import Logger
+from pipeline_utilities import *
 
 paddle_text_types = {
     "doc_title": "Page Title",
@@ -58,8 +58,7 @@ class LayoutClassifier:
             
             # Check GPU compatibility first
             # TODO: Remove this once we have a working model
-            # should_use_model = True
-            should_use_model = False
+            should_use_model = True
             
             if torch.cuda.is_available():
                 print(f"GPU count: {torch.cuda.device_count()}")
@@ -313,7 +312,7 @@ class LayoutClassifier:
             return str(e)
     
 
-    # TODO: Default to Body type since we can't classify
+    # Default to Body type since we can't classify
     def _fallback_text_extraction(self, extracted_shapes: list, logger):
         """Fallback text extraction without layout classification when PaddleX fails"""
         try:
@@ -500,3 +499,33 @@ class LayoutClassifier:
         logger.publish("Analyzing shapes complete.")
 
         return source, number_of_slides
+
+
+    def run_classification(self, request: dict):
+        logger = Logger("0")
+        try:
+            request_id = request.get("id")
+            if request_id is None:
+                request_id = "0"
+
+            logger = Logger(request_id)
+
+            filename = request.get("filename")
+            if filename is None:
+                filename = request_id
+            logger.print_and_write(f"Processing request {request_id}, filename: {filename}, with model id: pro")
+
+            logger.publish("Fetching files...")
+            pdfFilename = f"{request_id}.pdf"
+            pdfPath = download_file(request['pdfUrl'], pdfFilename)
+            pptFilename = f"{request_id}.pptx"
+            pptPath = download_file(request['pptUrl'], pptFilename)
+
+            source, number_of_slides = self.get_source(pptPath, pdfPath, request_id)
+            return source
+        
+        except Exception as e:
+            logger.error(e)
+            # Clear request from database
+            logger.publish(f"Error occurred. Please provide the following code to the developing team: {request_id}")
+            return None
