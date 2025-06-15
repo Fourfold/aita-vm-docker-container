@@ -376,7 +376,7 @@ class LayoutClassifier:
             image_paths = []
             logger.publish("Converting pdf to images...")
             try:
-                # In SageMaker's Linux environment, poppler should be found if installed via apt-get
+                # In Linux environment, poppler should be found if installed via apt-get
                 images = convert_from_path(pdf_path)
                 for i, img in enumerate(images):
                     img_path = os.path.join(output_folder, f'page_{i+1}.png')
@@ -394,7 +394,8 @@ class LayoutClassifier:
             Converts PDF to images and runs layout analysis using the PPStructure engine.
             Focuses on extracting layout information (type, bbox).
             """
-            image_files = convert_pdf_to_images_sm(pdf_path)
+            img_dir = f'pdf2image_output/{id}'
+            image_files = convert_pdf_to_images_sm(pdf_path, img_dir)
             if not image_files:
                 logger.publish("PDF processing failed.")
                 return None
@@ -404,9 +405,12 @@ class LayoutClassifier:
 
             all_page_layout_results = []
 
-            for i, img_path in enumerate(image_files):
-                logger.publish(f"Processing page #{i+1} of {number_of_slides}")
-                output = self.model.predict(img_path, batch_size=1, layout_nms=True)
+            outputs = self.model.predict(img_dir, batch_size=50, layout_nms=True)
+
+            for output in outputs:
+            # for i, img_path in enumerate(image_files):
+                # logger.publish(f"Processing page #{i+1} of {number_of_slides}")
+                # output = self.model.predict(img_path, batch_size=1, layout_nms=True)
                 page_layout_info = []
                 size = None
                 for res in output:
@@ -419,12 +423,13 @@ class LayoutClassifier:
                     # res.save_to_json(save_path=f"{output_save_dir}/res_{img_name}.json")
 
                 all_page_layout_results.append({
-                    'image_path': img_path,
+                    # 'image_path': img_path,
                     'image_size': size[0:2],
                     'layout_results': page_layout_info
                 })
-                os.remove(img_path)
+                # os.remove(img_path)
 
+            os.remove(img_dir)
             logger.publish("Document layout analysis complete.")
             return all_page_layout_results
 

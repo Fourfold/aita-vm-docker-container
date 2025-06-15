@@ -377,7 +377,7 @@ class LayoutClassifier:
             image_paths = []
             logger.publish("Converting pdf to images...")
             try:
-                # In SageMaker's Linux environment, poppler should be found if installed via apt-get
+                # In Linux environment, poppler should be found if installed via apt-get
                 images = convert_from_path(pdf_path)
                 for i, img in enumerate(images):
                     img_path = os.path.join(output_folder, f'page_{i+1}.png')
