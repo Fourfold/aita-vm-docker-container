@@ -25,10 +25,7 @@ from firebase_admin import credentials, storage, db
 import boto3
 import tempfile
 
-db_url = 'https://snb-ai-translation-agent-default-rtdb.firebaseio.com'
-secret = 'nAWmdbcHRL9UGDOP0S1Rp0pZ2c7TEIapUrsEBzHJ'
 download_folder = "downloads"
-# Path to your service account key
 
 def get_service_account_key():
     """Retrieve service account key from AWS Secrets Manager"""
@@ -74,7 +71,7 @@ def init_firebase():
         # Initialize app with storage bucket
             firebase_admin.initialize_app(cred, {
                 'storageBucket': 'snb-ai-translation-agent.firebasestorage.app',
-                'databaseURL': db_url
+                'databaseURL': 'https://snb-ai-translation-agent-default-rtdb.firebaseio.com'
             })
             firebase_initialized = True
         except Exception as e:
@@ -148,7 +145,11 @@ def download_file(url: str, filename: str):
 
 
 def clear_id(id: str):
-    requests.put(
-        f"{db_url}/translation_requests/{id}.json?auth={secret}",
-        data=json.dumps({})
-    )
+    pass
+    # init_firebase()
+    # try:
+    #     ref = db.reference(f"/translation_requests/{id}")
+    #     ref.set({})
+    # except Exception as e:
+    #     print(f"Error clearing translation request {id}: {e}")
+    #     raise
