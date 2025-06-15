@@ -482,6 +482,9 @@ class LayoutClassifier:
                                 if text_type is None:
                                     text_type = "Body"
                                 break
+                    
+                    if text_type == "Unknown":
+                        text_type = "Body"
 
                     slide_source.append({
                         "type": text_type,
